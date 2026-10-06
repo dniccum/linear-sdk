@@ -21,11 +21,11 @@ The configuration page is a small TypeScript application built with [Alpine.js](
 
 | Tool | Version | Why this one |
 |---|---|---|
-| Node.js | `>= 20.19` | Vite 8 needs 20.19+. CI runs Node 22. |
+| Node.js | `>= 22.12` | Required by Vitest 5. CI runs Node 22. |
 | Alpine.js | 3.17 | Runtime. The only production dependency. |
 | TypeScript | 6.0 | Newest release `typescript-eslint` supports (its peer range is `< 6.1`); TypeScript 7 is not usable with it yet. |
 | Vite | 8 | Build and dev server. |
-| Vitest | 4 (+ `@vitest/coverage-v8`) | Test runner. Vitest 5 requires Node 22, so 4.x keeps Node 20 working. |
+| Vitest | 5 (+ `@vitest/coverage-v8`) | Test runner and coverage. |
 | jsdom | 29 | DOM for tests. |
 | ESLint | 10 + `typescript-eslint` 8 | Flat config, type-aware rules. |
 
