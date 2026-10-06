@@ -22,7 +22,7 @@ function headerTemplate(): string {
   return `
 <header class="linear-header">
   <template x-if="settings.brand.logo">
-    <img class="linear-header__logo" :src="settings.brand.logo" alt="" width="44" height="44">
+    <img class="linear-header__logo" :src="settings.brand.logo" alt="" width="80" height="80">
   </template>
   <div class="linear-header__text">
     <p class="linear-header__eyebrow" x-text="settings.brand.name"></p>

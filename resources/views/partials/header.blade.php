@@ -5,7 +5,7 @@
 --}}
 <header class="linear-header">
     @if ($brand->logo !== null)
-        <img class="linear-header__logo" src="{{ $brand->logo }}" alt="" width="44" height="44">
+        <img class="linear-header__logo" src="{{ $brand->logo }}" alt="" width="80" height="80">
     @endif
     <div class="linear-header__text">
         <p class="linear-header__eyebrow">{{ $brand->name }}</p>
