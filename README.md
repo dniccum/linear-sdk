@@ -1,3 +1,5 @@
+<p align="center"><img src="art/social.png" alt="Linear SDK for Laravel" width="100%"></p>
+
 # Linear SDK for Laravel
 
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/dniccum/linear-sdk.svg?style=flat-square)](https://packagist.org/packages/dniccum/linear-sdk)
