@@ -2,6 +2,9 @@
 
 # Linear SDK for Laravel
 
+> [!NOTE]
+> **This is an unofficial, community-built package. It is not affiliated with, endorsed by, or sponsored by Linear.** "Linear" and the Linear logo are trademarks of Linear. This package simply talks to Linear's public API.
+
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/dniccum/linear-sdk.svg?style=flat-square)](https://packagist.org/packages/dniccum/linear-sdk)
 [![Tests](https://img.shields.io/github/actions/workflow/status/dniccum/linear-sdk/run-tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/dniccum/linear-sdk/actions/workflows/run-tests.yml)
 [![Code Style](https://img.shields.io/github/actions/workflow/status/dniccum/linear-sdk/fix-php-code-style-issues.yml?branch=main&label=code%20style&style=flat-square)](https://github.com/dniccum/linear-sdk/actions/workflows/fix-php-code-style-issues.yml)

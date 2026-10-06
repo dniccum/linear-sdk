@@ -32,6 +32,7 @@
   </g>
 
   <g font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
+    <text x="96" y="160" font-size="26" font-weight="700" fill="#8f9bff" letter-spacing="6">UNOFFICIAL</text>
     <text x="96" y="262" font-size="104" font-weight="700" fill="#ffffff" letter-spacing="-3">Linear SDK</text>
     <text x="96" y="336" font-size="52" font-weight="400" fill="#b4b9d6">for Laravel</text>
     <text x="96" y="404" font-size="28" fill="#8b90ad">Create Linear issues from your Eloquent models.</text>
