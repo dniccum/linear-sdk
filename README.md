@@ -46,6 +46,23 @@ php artisan vendor:publish --tag=linear-assets   # required for the configuratio
 | `linear-views` | the Blade views, so you can restyle the page |
 | `linear-assets` | the compiled JS/CSS to `public/vendor/linear` |
 
+### Keep the front-end assets up to date
+
+The configuration page's JavaScript and CSS are published into your `public` directory, so a copy from an older release stays there until you publish again. The page reads its asset manifest from the installed package but serves the files from `public/vendor/linear`, so after an upgrade with stale published files the page would link to bundles that no longer exist and fail to load. Re-publish them every time Composer updates the package by adding the command to the `post-update-cmd` scripts in your application's `composer.json`:
+
+```json
+"scripts": {
+    "post-update-cmd": [
+        "@php artisan vendor:publish --tag=laravel-assets --ansi --force",
+        "@php artisan vendor:publish --tag=linear-assets --ansi --force"
+    ]
+}
+```
+
+(`laravel-assets` is already there in a default Laravel application; add the `linear-assets` line beneath it.) The `--force` flag overwrites the previously published files, and the compiled files use hashed names, so browsers pick up the new version straight away. If you deploy with `composer install`, run the same command as a deploy step, or add it to `post-install-cmd` too.
+
+If you do not use the built-in page (the `ui` route group is off, or you build your own UI), you can skip this.
+
 Make sure a queue worker is running; issues and comments are sent from queued jobs.
 
 ## Configuration

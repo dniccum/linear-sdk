@@ -302,7 +302,7 @@ php artisan vendor:publish --tag=linear-assets
 php artisan vendor:publish --tag=linear-views
 ```
 
-Re-publish assets after upgrading the package (`--force` overwrites the previous build). The `@linearAssets` directive (and `<x-linear::assets />`) reads the manifest and emits the `<link>` and `<script type="module">` tags with `asset('vendor/linear/...')` URLs.
+Re-publish assets after upgrading the package (`--force` overwrites the previous build). This is required: the manifest is read from the installed package but the files are served from the published copy, so stale assets make the page link to bundles that no longer exist. Automate it with a `post-update-cmd` script in the application's `composer.json` (`@php artisan vendor:publish --tag=linear-assets --ansi --force`); see the README. The `@linearAssets` directive (and `<x-linear::assets />`) reads the manifest and emits the `<link>` and `<script type="module">` tags with `asset('vendor/linear/...')` URLs.
 
 Ways to customise, from least to most invasive:
 
