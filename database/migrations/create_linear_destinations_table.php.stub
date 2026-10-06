@@ -1,0 +1,46 @@
+<?php
+
+declare(strict_types=1);
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        $prefix = config()->string('linear.table_prefix', 'linear_');
+        $keyType = config()->string('linear.key_type', 'int');
+
+        Schema::create($prefix.'destinations', function (Blueprint $table) use ($keyType): void {
+            $table->id();
+
+            // One destination per owner.
+            $table->string('owner_type');
+            match ($keyType) {
+                'uuid' => $table->uuid('owner_id'),
+                'ulid' => $table->ulid('owner_id'),
+                default => $table->unsignedBigInteger('owner_id'),
+            };
+
+            $table->string('linear_organization_id')->nullable();
+            $table->string('send_mode')->default('automatic');
+            $table->string('team_id');
+            $table->string('team_name')->nullable();
+            $table->string('project_id')->nullable();
+            $table->string('state_id')->nullable();
+            $table->json('label_ids')->nullable();
+            $table->unsignedTinyInteger('priority')->nullable();
+            $table->string('assignee_id')->nullable();
+            $table->timestamps();
+
+            $table->unique(['owner_type', 'owner_id']);
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists(config()->string('linear.table_prefix', 'linear_').'destinations');
+    }
+};
