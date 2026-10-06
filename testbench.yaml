@@ -1,0 +1,26 @@
+providers:
+  - Dniccum\Linear\LinearServiceProvider
+  - Workbench\App\Providers\WorkbenchServiceProvider
+env:
+  - DB_CONNECTION=sqlite
+  - SESSION_DRIVER=file
+  - QUEUE_CONNECTION=sync
+migrations:
+  - workbench/database/migrations
+workbench:
+  start: '/linear'
+  install: true
+  discovers:
+    web: false
+    api: false
+    commands: false
+    components: false
+    views: false
+  build:
+    - asset-publish
+    - create-sqlite-db
+    - db-wipe
+    - migrate-fresh
+  assets:
+    - linear-assets
+  sync: []

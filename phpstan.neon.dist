@@ -1,0 +1,22 @@
+includes:
+    - phpstan-baseline.neon
+
+parameters:
+    level: 9
+    paths:
+        - src
+        - config
+        - database
+        - workbench/app
+    tmpDir: build/phpstan
+    checkOctaneCompatibility: true
+    checkModelProperties: true
+    treatPhpDocTypesAsCertain: false
+    # The package ships its own config directory rather than the skeleton's.
+    configDirectories:
+        - %currentWorkingDirectory%/config
+    strictRules:
+        # Larastan reflects the calls Eloquent forwards to the query builder
+        # (limit(), exists(), orderBy(), ...) as static, which this rule
+        # then reports on every instance call.
+        dynamicCallOnStaticMethod: false
