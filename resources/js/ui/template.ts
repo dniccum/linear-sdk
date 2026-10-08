@@ -138,6 +138,21 @@ export function selectTemplate(spec: SelectSpec): string {
 </div>`;
 }
 
+const ARROW_LEFT_ICON =
+  '<svg class="linear-back__icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m15 18-6-6 6-6"/></svg>';
+
+/**
+ * The link out of the page. Absent when the server sends `back: null`. The
+ * label and URL reach the DOM through `x-text` / `:href` only (never as HTML);
+ * the URL was validated as http(s) or root-relative by `schema.ts`.
+ */
+function backTemplate(): string {
+  return `
+<template x-if="settings.back">
+  <a class="linear-back" :href="settings.back.url">${ARROW_LEFT_ICON}<span x-text="settings.back.label"></span></a>
+</template>`;
+}
+
 function headerTemplate(): string {
   return `
 <header class="linear-header">
@@ -494,6 +509,7 @@ export function renderApp(): string {
   return `
 <div class="linear-shell" x-data="${COMPONENT_NAMES.app}()"
   ${listeners}>
+${backTemplate()}
 ${headerTemplate()}
 ${flashTemplate()}
 ${connectionTemplate()}

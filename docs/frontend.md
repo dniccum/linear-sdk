@@ -11,6 +11,7 @@ The configuration page is a small TypeScript application built with [Alpine.js](
 - [The select component](#the-select-component)
 - [Select visuals](#select-visuals)
 - [Expired sessions and the login redirect](#expired-sessions-and-the-login-redirect)
+- [The back link](#the-back-link)
 - [Adding a component, step by step](#adding-a-component-step-by-step)
 - [TypeScript conventions](#typescript-conventions)
 - [Testing](#testing)
@@ -96,7 +97,7 @@ Blade view                           bundle (resources/js)
                                               └─ x-data="linearApp()" builds state from `settings`
 ```
 
-1. The server renders `<script type="application/json" id="linear-settings">` containing the `Settings` payload from the contract (CSRF token, URLs, connection, destination, failures, flash).
+1. The server renders `<script type="application/json" id="linear-settings">` containing the `Settings` payload from the contract (CSRF token, URLs, connection, destination, failures, flash, back link).
 2. `readSettings()` parses it and runs `isSettings()`. Anything missing or malformed produces a `SettingsError`, and `mount()` replaces the page with a friendly, accessible error (`renderFatalError`) instead of a half-working UI. `mount()` returns `'mounted' | 'missing-root' | 'invalid-settings'` rather than throwing.
 3. `createClient(settings)` captures the CSRF token and URL templates. `registerComponents()` binds that `settings`/`client` pair into every `Alpine.data` factory.
 4. `renderApp()` returns the markup. It never interpolates runtime data: URLs, the CSRF token, names and messages all reach the DOM through Alpine bindings (`x-text`, `:href`, `:value`), which set properties instead of parsing HTML. That keeps the templates static and XSS-safe.
@@ -233,6 +234,14 @@ The settings payload carries `urls.login` (`''` when the host has no login page;
 - with no login URL (or if `redirect` throws), it rejects with "Your session has expired. Please sign in again.", and a later failure tries the redirect again.
 
 The server's own wording is never shown for these two statuses. Because the request still rejects, existing handlers restore their state as usual (loading flags reset, the failures list puts the optimistic item back). 403, 409, 422, 503 and the rest are not treated as login redirects.
+
+## The back link
+
+The settings payload carries `back: null | { label: string; url: string }` (typed as `BackLink` in `types/index.ts`). Both values are configured and resolved on the server; `null` means the link is disabled or its URL could not be resolved. A payload without the key (an older server) is treated as `null` by `withSettingsDefaults()` in `schema.ts`.
+
+`isBackLink` validates it strictly: `label` must be a non-blank string, and `url` must pass `isSafeLinkUrl()`, which accepts only an absolute `http(s)` URL or a root-relative path starting with a single `/`. `javascript:`, `data:`, `mailto:`, protocol-relative (`//host`), bare words and anything containing whitespace or control characters are rejected, and a rejected payload fails `isSettings` like any other malformed field (the page shows the friendly fatal error).
+
+`ui/template.ts` renders it above the header inside `<template x-if="settings.back">`: a plain `<a class="linear-back" :href="settings.back.url">` holding a decorative 16px `arrow-left`-style chevron (`aria-hidden`) and the label through `x-text`. It is a normal link (no extra landmark), so it is keyboard reachable and uses the shared `:focus-visible` outline. The label and URL only reach the DOM through `x-text` and `:href`, never as HTML. Styling is `.linear-back` in `resources/css/linear.css` (a quiet ghost-button link: muted text, hover background and text colour, 36px high).
 
 ## Adding a component, step by step
 

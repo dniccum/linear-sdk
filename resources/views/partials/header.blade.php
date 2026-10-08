@@ -1,8 +1,12 @@
 {{--
     The branded header. It is the server-rendered fallback inside the mount
     element; the front-end bundle replaces it with its own once it boots.
-    Expects $brand (Dniccum\Linear\Data\Settings\BrandData).
+    Expects $brand (Dniccum\Linear\Data\Settings\BrandData) and, optionally,
+    $back (Dniccum\Linear\Data\Settings\BackData|null).
 --}}
+@if (($back ?? null) !== null)
+    <a class="linear-back" href="{{ $back->url }}">{{ $back->label }}</a>
+@endif
 <header class="linear-header">
     @if ($brand->logo !== null)
         <img class="linear-header__logo" src="{{ $brand->logo }}" alt="" width="80" height="80">

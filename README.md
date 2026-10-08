@@ -211,6 +211,29 @@ Linear::authorizeUsing(fn (Request $request, Model $owner) => $request->user()->
 
 Change the URL or middleware with `path` and `middleware` in the config.
 
+### Back link
+
+A "Back" link at the top of the page lets users leave the configuration interface. The text and the destination are both configurable, and the destination defaults to `/dashboard`:
+
+```php
+// config/linear.php (or LINEAR_BACK_LABEL / LINEAR_BACK_URL in .env)
+'back' => [
+    'enabled' => true,                 // false hides the link
+    'label' => 'Back',                 // text, or a translation key such as 'linear.back'
+    'url' => '/dashboard',             // a route name ('dashboard'), a path or a full URL
+],
+```
+
+When the destination depends on who is looking (a team, a tenant), choose it at runtime from a service provider's `boot()` method. The callback receives the owner and returns a route name, a path or a URL, or `null` to hide the link; it takes precedence over `back.url`:
+
+```php
+use Dniccum\Linear\Facades\Linear;
+
+Linear::backUsing(fn (Model $owner) => route('teams.show', $owner));
+```
+
+The link is part of the settings payload (`back`) and of `Linear::settingsFor($owner)->back`, so custom UIs can render it too. If you embed `<x-linear::settings />` inside your own layout, set `back.enabled` to `false`.
+
 ### Signed-out users
 
 If a user's session expires while they are using the page (or they open it signed out), they are sent to your login page instead of seeing a raw error. The page's requests that come back `401` or `419` redirect the browser, and package routes reached without a signed-in user redirect there too. The destination defaults to your `login` route and is configurable:

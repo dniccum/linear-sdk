@@ -7,6 +7,7 @@ import {
   isFieldErrorsBody,
   isMessageBody,
   isRetryResponse,
+  isSafeLinkUrl,
   isSavedDestinationResponse,
   isSettings,
   isTeamOptions,
@@ -34,6 +35,12 @@ describe('isSettings', () => {
     expect(isSettings(settings)).toBe(true);
   });
 
+  it('accepts a back link with a root-relative or http(s) URL', () => {
+    for (const url of ['/dashboard', '/a/b?c=1#d', 'https://app.example.com/dashboard', 'http://localhost:8000/']) {
+      expect(isSettings(makeSettings({ back: { label: 'Back', url } }))).toBe(true);
+    }
+  });
+
   it('rejects non-objects', () => {
     for (const value of [null, undefined, 'x', 1, [], true]) {
       expect(isSettings(value)).toBe(false);
@@ -56,6 +63,16 @@ describe('isSettings', () => {
     ['failures is not an array', (s) => (s['failures'] = {})],
     ['a failure has a bad kind', (s) => (s['failures'] = [{ ...makeFailure(), kind: 'ticket' }])],
     ['a failure has non-numeric attempts', (s) => (s['failures'] = [{ ...makeFailure(), attempts: '3' }])],
+    ['back is missing', (s) => delete s['back']],
+    ['back is a string', (s) => (s['back'] = '/dashboard')],
+    ['back has no label', (s) => (s['back'] = { url: '/dashboard' })],
+    ['back has an empty label', (s) => (s['back'] = { label: '', url: '/dashboard' })],
+    ['back has a blank label', (s) => (s['back'] = { label: '   ', url: '/dashboard' })],
+    ['back has a non-string label', (s) => (s['back'] = { label: 1, url: '/dashboard' })],
+    ['back has no url', (s) => (s['back'] = { label: 'Back' })],
+    ['back has an empty url', (s) => (s['back'] = { label: 'Back', url: '' })],
+    ['back has a javascript: url', (s) => (s['back'] = { label: 'Back', url: 'javascript:alert(1)' })],
+    ['back has a data: url', (s) => (s['back'] = { label: 'Back', url: 'data:text/html,<b>x</b>' })],
     ['flash is missing', (s) => delete s['flash']],
     ['flash.status is a number', (s) => (s['flash'] = { status: 1, error: null })],
   ];
@@ -191,6 +208,31 @@ describe('withSettingsDefaults', () => {
     expect(upgraded).toMatchObject({ urls: { login: '', teams: '/linear/api/teams' } });
   });
 
+  it('adds back: null when the server did not send the key', () => {
+    const settings: Partial<ReturnType<typeof makeSettings>> = makeSettings();
+    delete settings.back;
+    const upgraded = withSettingsDefaults(settings);
+
+    expect(isSettings(settings)).toBe(false);
+    expect(isSettings(upgraded)).toBe(true);
+    expect(upgraded).toMatchObject({ back: null });
+  });
+
+  it('fills in both defaults at once', () => {
+    const urls: Partial<ReturnType<typeof makeSettings>['urls']> = { ...makeSettings().urls };
+    delete urls.login;
+    const settings: Partial<ReturnType<typeof makeSettings>> = { ...makeSettings(), urls: urls as ReturnType<typeof makeSettings>['urls'] };
+    delete settings.back;
+
+    expect(withSettingsDefaults(settings)).toEqual(makeSettings({ urls: { ...makeSettings().urls, login: '' } }));
+  });
+
+  it('keeps an existing back link', () => {
+    const settings = makeSettings({ back: { label: 'Home', url: '/home' } });
+
+    expect(withSettingsDefaults(settings)).toBe(settings);
+  });
+
   it('leaves payloads that have a login URL (even an empty one) untouched', () => {
     const settings = makeSettings();
     const noLogin = makeSettings({ urls: { ...settings.urls, login: '' } });
@@ -202,7 +244,39 @@ describe('withSettingsDefaults', () => {
   it('leaves anything that is not a settings-like object for the guard to reject', () => {
     expect(withSettingsDefaults(null)).toBeNull();
     expect(withSettingsDefaults('x')).toBe('x');
-    expect(withSettingsDefaults({ urls: 'x' })).toEqual({ urls: 'x' });
-    expect(withSettingsDefaults({})).toEqual({});
+    expect(withSettingsDefaults({ urls: 'x' })).toEqual({ urls: 'x', back: null });
+    expect(withSettingsDefaults({})).toEqual({ back: null });
+  });
+});
+
+describe('isSafeLinkUrl', () => {
+  it.each(['/', '/dashboard', '/dashboard?tab=1#top', 'https://example.com', 'HTTP://example.com/x'])('accepts %s', (url) => {
+    expect(isSafeLinkUrl(url)).toBe(true);
+  });
+
+  it.each([
+    '',
+    'dashboard',
+    '//evil.example.com',
+    '/\\evil.example.com',
+    'javascript:alert(1)',
+    ' javascript:alert(1)',
+    'JaVaScRiPt:alert(1)',
+    'data:text/html,x',
+    'vbscript:x',
+    'mailto:a@b.co',
+    'ftp://example.com',
+    'https://',
+    '/with space',
+    '/new\nline',
+    'https://example.com/\u0000',
+  ])('rejects %j', (url) => {
+    expect(isSafeLinkUrl(url)).toBe(false);
+  });
+
+  it('rejects non-strings', () => {
+    for (const value of [null, undefined, 1, {}, ['/x']]) {
+      expect(isSafeLinkUrl(value)).toBe(false);
+    }
   });
 });

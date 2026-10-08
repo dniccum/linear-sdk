@@ -53,6 +53,32 @@ describe('renderApp', () => {
     expect(renderApp()).not.toContain('$dispatch');
   });
 
+  it('renders the back link only when settings.back is set, above the header', () => {
+    const markup = renderApp();
+    const container = document.createElement('div');
+    container.innerHTML = markup;
+
+    const template = container.querySelector('.linear-shell > template[x-if="settings.back"]');
+    expect(template).not.toBeNull();
+    expect(template?.nextElementSibling?.matches('header.linear-header')).toBe(true);
+    expect(container.querySelector('.linear-shell > a.linear-back')).toBeNull();
+  });
+
+  it('builds the back link from bindings only: a focusable, labelled anchor with a decorative icon', () => {
+    const anchor = parseApp().querySelector<HTMLAnchorElement>('a.linear-back');
+
+    expect(anchor?.getAttribute(':href')).toBe('settings.back.url');
+    expect(anchor?.hasAttribute('href')).toBe(false);
+    expect(anchor?.querySelector('[x-text="settings.back.label"]')).not.toBeNull();
+    expect(anchor?.querySelector('x-html')).toBeNull();
+    expect(anchor?.hasAttribute('x-html')).toBe(false);
+    const icon = anchor?.querySelector('svg');
+    expect(icon?.getAttribute('aria-hidden')).toBe('true');
+    expect(icon?.getAttribute('width')).toBe('16');
+    expect(icon?.getAttribute('height')).toBe('16');
+    expect(anchor?.getAttribute('tabindex')).toBeNull();
+  });
+
   it('has one page heading and labelled card sections', () => {
     const app = parseApp();
 

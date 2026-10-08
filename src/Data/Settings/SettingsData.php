@@ -22,6 +22,7 @@ final readonly class SettingsData extends Data
         public BrandData $brand,
         public string $csrf,
         public UrlsData $urls,
+        public ?BackData $back,
         public ?ConnectionData $connection,
         public ?DestinationData $destination,
         public array $failures,
@@ -38,7 +39,7 @@ final readonly class SettingsData extends Data
     }
 
     /**
-     * @return array{configured: bool, authMode: string, brand: array<string, mixed>, csrf: string, urls: array<string, string>, connection: array<string, mixed>|null, destination: array<string, mixed>|null, failures: list<array<string, mixed>>, flash: array<string, string|null>}
+     * @return array{configured: bool, authMode: string, brand: array<string, mixed>, csrf: string, urls: array<string, string>, back: array{label: string, url: string}|null, connection: array<string, mixed>|null, destination: array<string, mixed>|null, failures: list<array<string, mixed>>, flash: array<string, string|null>}
      */
     public function toArray(): array
     {
@@ -48,6 +49,7 @@ final readonly class SettingsData extends Data
             'brand' => $this->brand->toArray(),
             'csrf' => $this->csrf,
             'urls' => $this->urls->toArray(),
+            'back' => $this->back?->toArray(),
             'connection' => $this->connection?->toArray(),
             'destination' => $this->destination?->toArray(),
             'failures' => array_map(fn (FailureData $failure): array => $failure->toArray(), $this->failures),

@@ -13,6 +13,7 @@ use Dniccum\Linear\Data\Settings\SettingsData;
 use Dniccum\Linear\Data\Settings\UrlsData;
 use Dniccum\Linear\Enums\LinearAuthMode;
 use Dniccum\Linear\Enums\LinearSyncStatus;
+use Dniccum\Linear\Linear;
 use Dniccum\Linear\Models\LinearCommentDelivery;
 use Dniccum\Linear\Models\LinearIssueLink;
 use Dniccum\Linear\Services\LinearOAuth;
@@ -48,6 +49,7 @@ class BuildSettings
             brand: BrandData::fromConfig(),
             csrf: Json::string(csrf_token()),
             urls: UrlsData::resolve(),
+            back: app(Linear::class)->backFor($owner),
             connection: $connection === null ? null : ConnectionData::fromModel($connection),
             destination: $destination === null ? null : DestinationData::fromModel($destination),
             failures: $this->failures($owner),

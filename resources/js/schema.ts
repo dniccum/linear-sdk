@@ -15,9 +15,11 @@ import {
   recordOf,
   shape,
   type Guard,
+  type UnknownRecord,
 } from './guards';
 import type {
   AuthMode,
+  BackLink,
   Brand,
   Connection,
   ConnectionStatus,
@@ -101,6 +103,44 @@ export const isFlash: Guard<Flash> = shape<Flash>({
   error: nullableString,
 });
 
+/** Whitespace and control characters never belong in a link target. */
+function hasUnsafeCharacters(value: string): boolean {
+  return [...value].some((character) => {
+    const code = character.charCodeAt(0);
+    return code <= 0x20 || code === 0x7f;
+  });
+}
+
+/**
+ * A URL the back link may point at: an absolute `http(s)` URL or a root-relative
+ * path (`/dashboard`, but not protocol-relative `//host` or `/\host`). Anything
+ * else (`javascript:`, `data:`, `mailto:`, bare words) is rejected.
+ */
+export function isSafeLinkUrl(value: unknown): value is string {
+  if (typeof value !== 'string' || value === '' || hasUnsafeCharacters(value)) {
+    return false;
+  }
+
+  if (value.startsWith('/')) {
+    return !value.startsWith('//') && !value.startsWith('/\\');
+  }
+
+  try {
+    const { protocol } = new URL(value);
+    return protocol === 'http:' || protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+const isNonEmptyString: Guard<string> = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim() !== '';
+
+export const isBackLink: Guard<BackLink> = shape<BackLink>({
+  label: isNonEmptyString,
+  url: isSafeLinkUrl,
+});
+
 export const isSettings: Guard<Settings> = shape<Settings>({
   configured: isBoolean,
   authMode: oneOf(AUTH_MODES),
@@ -111,6 +151,7 @@ export const isSettings: Guard<Settings> = shape<Settings>({
   destination: nullable(isDestination),
   failures: arrayOf(isFailureItem),
   flash: isFlash,
+  back: nullable(isBackLink),
 });
 
 // --- API responses ----------------------------------------------------------
@@ -224,12 +265,24 @@ export function withTeamOptionsDefaults(value: unknown): unknown {
 
 /**
  * Fills in what older servers do not send yet, before `isSettings` checks the
- * payload: `urls.login` defaults to `''` (no login redirect).
+ * payload: `urls.login` defaults to `''` (no login redirect) and `back` to
+ * `null` (no back link).
  */
 export function withSettingsDefaults(value: unknown): unknown {
-  if (!isRecord(value) || !isRecord(value['urls']) || value['urls']['login'] !== undefined) {
+  if (!isRecord(value)) {
     return value;
   }
 
-  return { ...value, urls: { ...value['urls'], login: '' } };
+  const missingLogin = isRecord(value['urls']) && value['urls']['login'] === undefined;
+  const missingBack = value['back'] === undefined;
+
+  if (!missingLogin && !missingBack) {
+    return value;
+  }
+
+  return {
+    ...value,
+    ...(missingLogin ? { urls: { ...(value['urls'] as UnknownRecord), login: '' } } : {}),
+    ...(missingBack ? { back: null } : {}),
+  };
 }

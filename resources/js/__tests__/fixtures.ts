@@ -118,6 +118,7 @@ export function makeSettings(overrides: Partial<Settings> = {}): Settings {
     destination: makeDestination(),
     failures: [makeFailure()],
     flash: { status: null, error: null },
+    back: null,
     ...overrides,
   };
 }

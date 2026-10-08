@@ -8,7 +8,7 @@
     @linearAssets
 @endif
 <div data-linear-app class="linear-app" style="--linear-accent: {{ $settings->brand->color }}">
-    @include('linear::partials.header', ['brand' => $settings->brand])
+    @include('linear::partials.header', ['brand' => $settings->brand, 'back' => $settings->back])
     <noscript>
         <p>JavaScript is required to configure the Linear integration.</p>
     </noscript>

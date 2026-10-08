@@ -201,6 +201,31 @@ describe('disconnected', () => {
     expect(logo.getAttribute('alt')).toBe('');
   });
 
+  it('renders the back link with the configured label and URL, before the header', async () => {
+    const app = await boot(makeSettings({ back: { label: 'Back to dashboard', url: 'https://app.example.com/dashboard' } }));
+
+    const link = el<HTMLAnchorElement>(app, 'a.linear-back');
+    expect(link.getAttribute('href')).toBe('https://app.example.com/dashboard');
+    expect(link.textContent?.trim()).toBe('Back to dashboard');
+    expect(link.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+    expect(link.compareDocumentPosition(el(app, '.linear-header')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('never parses the back label as HTML', async () => {
+    const app = await boot(makeSettings({ back: { label: '<img src=x onerror=alert(1)>', url: '/dashboard' } }));
+
+    const link = el<HTMLAnchorElement>(app, 'a.linear-back');
+    expect(link.textContent?.trim()).toBe('<img src=x onerror=alert(1)>');
+    expect(link.querySelector('img')).toBeNull();
+    expect(link.getAttribute('href')).toBe('/dashboard');
+  });
+
+  it('renders no back link when back is null', async () => {
+    const app = await boot(makeSettings({ back: null }));
+
+    expect(app.container.querySelector('.linear-back')).toBeNull();
+  });
+
   it('omits the logo when none is configured', async () => {
     const app = await boot(disconnected);
 

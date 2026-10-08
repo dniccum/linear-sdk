@@ -6,6 +6,7 @@ namespace Dniccum\Linear;
 
 use Closure;
 use Dniccum\Linear\Actions\BuildSettings;
+use Dniccum\Linear\Data\Settings\BackData;
 use Dniccum\Linear\Data\Settings\SettingsData;
 use Dniccum\Linear\Enums\LinearAuthMode;
 use Dniccum\Linear\Exceptions\LinearApiException;
@@ -39,6 +40,9 @@ class Linear
     private ?Closure $authorizeUsing = null;
 
     private bool $ignoreRoutes = false;
+
+    /** @var (Closure(Model): (string|null))|null */
+    private ?Closure $backUsing = null;
 
     public function __construct(
         private readonly Application $app,
@@ -127,13 +131,61 @@ class Linear
      */
     public function loginUrl(): ?string
     {
-        $login = Json::nullableString(config('linear.login_route'));
+        return $this->resolveLink(Json::nullableString(config('linear.login_route')));
+    }
 
+    /**
+     * Decide where the "back" link of the configuration page goes, per owner.
+     * The callback receives the owner and returns a route name, a path, a full
+     * URL, or null to hide the link. It takes precedence over `linear.back.url`.
+     *
+     * @param  Closure(Model): (string|null)  $callback
+     */
+    public function backUsing(Closure $callback): static
+    {
+        $this->backUsing = $callback;
+
+        return $this;
+    }
+
+    /**
+     * The "back" link shown on the configuration page, or null when it is
+     * disabled (`linear.back.enabled`), has no usable destination, or the
+     * `backUsing` callback returned null. The label is `linear.back.label`,
+     * passed through the translator so it can be a translation key.
+     */
+    public function backFor(Model $owner): ?BackData
+    {
+        if (config('linear.back.enabled', true) !== true) {
+            return null;
+        }
+
+        $target = $this->backUsing === null
+            ? Json::nullableString(config('linear.back.url'))
+            : ($this->backUsing)($owner);
+
+        $url = $this->resolveLink($target);
+
+        if ($url === null) {
+            return null;
+        }
+
+        $label = Json::nullableString(config('linear.back.label')) ?? 'Back';
+
+        return new BackData(Json::string(__($label)), $url);
+    }
+
+    /**
+     * A route name, a root-relative path or an http(s) URL as a URL; null when
+     * it is none of those.
+     */
+    private function resolveLink(?string $link): ?string
+    {
         return match (true) {
-            $login === null => null,
-            Route::has($login) => route($login),
-            str_starts_with($login, '/') => url($login),
-            str_starts_with($login, 'http://'), str_starts_with($login, 'https://') => $login,
+            $link === null, $link === '' => null,
+            Route::has($link) => route($link),
+            str_starts_with($link, '/') => url($link),
+            str_starts_with($link, 'http://'), str_starts_with($link, 'https://') => $link,
             default => null,
         };
     }

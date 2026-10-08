@@ -29,6 +29,7 @@ interface Settings {
   authMode: 'oauth' | 'api_key';
   brand: { name: string; logo: string | null; color: string };
   csrf: string;
+  back: null | { label: string; url: string };   // link that lets the user leave the page; null when disabled or unresolvable
   urls: {
     connect: string; apiKey: string; disconnect: string;
     teams: string; teamOptions: string;   // teamOptions contains the literal "{team}" placeholder

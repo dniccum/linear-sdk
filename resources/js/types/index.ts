@@ -80,6 +80,13 @@ export interface Flash {
   error: string | null;
 }
 
+/** A link out of the configuration page. Both fields are decided server-side. */
+export interface BackLink {
+  label: string;
+  /** An absolute `http(s)` URL or a root-relative path (starts with a single `/`). */
+  url: string;
+}
+
 export interface Settings {
   configured: boolean;
   authMode: AuthMode;
@@ -90,6 +97,8 @@ export interface Settings {
   destination: Destination | null;
   failures: FailureItem[];
   flash: Flash;
+  /** Link back to the host application; `null` when disabled or its URL could not be resolved. */
+  back: BackLink | null;
 }
 
 // --- API payloads -----------------------------------------------------------

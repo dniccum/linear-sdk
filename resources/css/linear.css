@@ -133,6 +133,35 @@ body:has(> .linear-app) {
   outline-offset: 2px;
 }
 
+/* ---- Back link ---------------------------------------------------------- */
+
+/* A quiet ghost-button link above the header; the negative margin lines the icon up with the header edge. */
+.linear-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: start;
+  min-height: 36px;
+  margin: -8px 0 -8px -10px;
+  padding: 6px 12px 6px 8px;
+  border-radius: var(--linear-radius-sm);
+  background: transparent;
+  color: var(--linear-text-muted);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.2;
+  text-decoration: none;
+}
+
+.linear-back:hover {
+  background: var(--linear-surface-muted);
+  color: var(--linear-text);
+}
+
+.linear-back__icon {
+  flex: none;
+}
+
 /* ---- Header ------------------------------------------------------------- */
 
 .linear-header {

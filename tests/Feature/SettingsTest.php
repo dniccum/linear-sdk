@@ -33,7 +33,7 @@ test('the settings payload has exactly the keys of the HTTP contract', function 
 
     $payload = Linear::settingsFor($this->owner)->toArray();
 
-    expect(array_keys($payload))->toBe(['configured', 'authMode', 'brand', 'csrf', 'urls', 'connection', 'destination', 'failures', 'flash'])
+    expect(array_keys($payload))->toBe(['configured', 'authMode', 'brand', 'csrf', 'urls', 'back', 'connection', 'destination', 'failures', 'flash'])
         ->and(array_keys($payload['brand']))->toBe(['name', 'logo', 'color'])
         ->and(array_keys($payload['urls']))->toBe(['connect', 'apiKey', 'disconnect', 'teams', 'teamOptions', 'destination', 'retry', 'login'])
         ->and(array_keys($payload['connection']))->toBe(['status', 'organizationName', 'organizationUrlKey', 'userName', 'userEmail', 'lastError', 'lastSyncedAt'])

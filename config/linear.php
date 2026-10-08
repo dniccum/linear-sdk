@@ -138,6 +138,32 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Back link
+    |--------------------------------------------------------------------------
+    |
+    | A link at the top of the configuration page that lets users leave it.
+    |
+    | "enabled"  Set to false to hide the link.
+    | "label"    The link text. Passed through the translator, so it can be a
+    |            translation key such as "linear.back".
+    | "url"      A route name (for example "dashboard"), a path ("/dashboard",
+    |            the default) or a full URL.
+    |
+    | To choose the destination at runtime (per user or team), call
+    | Linear::backUsing(fn (Model $owner) => route('teams.show', $owner)) from
+    | a service provider. It takes precedence over "url" and may return null to
+    | hide the link.
+    |
+    */
+
+    'back' => [
+        'enabled' => true,
+        'label' => env('LINEAR_BACK_LABEL', 'Back'),
+        'url' => env('LINEAR_BACK_URL', '/dashboard'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Branding
     |--------------------------------------------------------------------------
     |
