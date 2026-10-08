@@ -110,7 +110,8 @@ describe('renderApp', () => {
   });
 
   it('has unique ids', () => {
-    const all = [...parseApp().querySelectorAll('[id]')].map((element) => element.id);
+    // jsdom 30's `[id]` selector also matches Alpine's `:id` bindings, so check the exact attribute name.
+    const all = [...parseApp().querySelectorAll('[id]')].filter((element) => element.hasAttribute('id')).map((element) => element.id);
 
     expect(new Set(all).size).toBe(all.length);
   });
