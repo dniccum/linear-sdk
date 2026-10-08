@@ -515,6 +515,15 @@ body:has(> .linear-app) {
   font-size: 14px;
   line-height: 20px;
   transform-origin: top center;
+}
+
+/* Hidden until it has been measured and placed, so it never flashes on the
+   wrong side of the trigger; the entrance animation starts once it is placed. */
+.linear-select__content:not([data-placed]) {
+  visibility: hidden;
+}
+
+.linear-select__content[data-placed] {
   animation: linear-select-in 0.12s ease-out;
 }
 

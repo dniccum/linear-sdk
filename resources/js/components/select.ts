@@ -87,6 +87,12 @@ export interface SelectComponent {
   activeIndex: number;
   placement: SelectPlacement;
   maxHeight: number;
+  /**
+   * Whether the popup has been measured and positioned. It stays hidden (and
+   * its animation does not start) until then, so it never flashes on the wrong
+   * side of the trigger.
+   */
+  placed: boolean;
 
   readonly entries: readonly SelectItem[];
   readonly selectedIndex: number;
@@ -136,6 +142,7 @@ export function linearSelect(host: HTMLElement, config: SelectConfig): SelectCom
     activeIndex: -1,
     placement: 'bottom',
     maxHeight: SELECT_MAX_HEIGHT,
+    placed: false,
     visualClasses,
     visualStyle,
     visualMarkup,
@@ -217,6 +224,7 @@ export function linearSelect(host: HTMLElement, config: SelectConfig): SelectCom
       this.activeIndex = enabled.includes(this.selectedIndex) ? this.selectedIndex : (enabled[0] ?? -1);
       this.placement = 'bottom';
       this.maxHeight = SELECT_MAX_HEIGHT;
+      this.placed = false;
       this.open = true;
 
       // The popup has to be rendered before it can be measured.
@@ -224,12 +232,14 @@ export function linearSelect(host: HTMLElement, config: SelectConfig): SelectCom
         if (this.open) {
           place(this);
           scrollActiveIntoView(this.activeIndex);
+          this.placed = true;
         }
       });
     },
 
     hide(refocus = false) {
       this.open = false;
+      this.placed = false;
       this.activeIndex = -1;
       typeahead = '';
 

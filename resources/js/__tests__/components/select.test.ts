@@ -268,6 +268,37 @@ describe('opening and closing', () => {
 
     expect(select.placement).toBe('bottom');
     expect(select.maxHeight).toBe(SELECT_MAX_HEIGHT);
+    expect(select.placed).toBe(false);
+  });
+
+  it('stays unplaced until it has been measured, then reveals the popup', () => {
+    const { select } = setup();
+    let queued: (() => void) | undefined;
+    Object.assign(select, {
+      $nextTick: (callback?: () => void) => {
+        queued = callback;
+        return Promise.resolve();
+      },
+    });
+
+    select.show();
+
+    expect(select.open).toBe(true);
+    expect(select.placed).toBe(false);
+
+    queued?.();
+
+    expect(select.placed).toBe(true);
+  });
+
+  it('is unplaced again once it closes, ready for the next opening', () => {
+    const { select } = setup();
+
+    select.show();
+    expect(select.placed).toBe(true);
+
+    select.hide();
+    expect(select.placed).toBe(false);
   });
 });
 

@@ -880,6 +880,24 @@ describe('custom select', () => {
     return app;
   }
 
+  it('only marks the popup as placed (visible, animating) while it is open', async () => {
+    const app = await ready();
+
+    expect(popup(app, 'linear-project').hasAttribute('data-placed')).toBe(false);
+
+    trigger(app, 'linear-project').click();
+    await opened(app, 'linear-project');
+    await vi.waitFor(() => {
+      expect(popup(app, 'linear-project').hasAttribute('data-placed')).toBe(true);
+    });
+
+    key(app, 'linear-project', 'Escape');
+    await closed(app, 'linear-project');
+    await vi.waitFor(() => {
+      expect(popup(app, 'linear-project').hasAttribute('data-placed')).toBe(false);
+    });
+  });
+
   it('wires the combobox, listbox and options with the ARIA select-only pattern', async () => {
     const app = await ready();
     const field = trigger(app, 'linear-project');

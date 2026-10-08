@@ -117,7 +117,7 @@ export function selectTemplate(spec: SelectSpec): string {
     <span class="linear-select__value" :class="{ 'linear-select__value--placeholder': isPlaceholder }" x-text="label"></span>
     ${CHEVRON_ICON}
   </button>
-  <div class="linear-select__content" id="${id}-listbox" role="listbox" aria-labelledby="${id}-label" tabindex="-1" x-show="open" style="display: none" :data-side="placement" :style="contentStyle" @mousedown.prevent>
+  <div class="linear-select__content" id="${id}-listbox" role="listbox" aria-labelledby="${id}-label" tabindex="-1" x-show="open" style="display: none" :data-side="placement" :data-placed="placed ? '' : null" :style="contentStyle" @mousedown.prevent>
     <template x-for="(item, index) in entries" :key="String(item.value)">
       <div
         class="linear-select__item"
