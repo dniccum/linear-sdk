@@ -1,10 +1,10 @@
 # Contributing
 
-Thank you for considering contributing to the SecretStash CLI! To maintain a high standard for our code and ensure a smooth process, please follow these guidelines.
+Thank you for considering contributing to this Linear SDK! To maintain a high standard for our code and ensure a smooth process, please follow these guidelines.
 
 ## Code of Conduct
 
-Help us keep the SecretStash community open and inclusive. Please be kind and respectful in all interactions.
+Help us keep the Linear community open and inclusive. Please be kind and respectful in all interactions.
 
 ## Bug Reports
 
@@ -48,7 +48,7 @@ This package leverages several modern PHP and Laravel features:
 
 ## Thank You!
 
-Your contributions help make SecretStash CLI a better tool for the entire Laravel community. We appreciate your time and effort!
+Your contributions help make Linear SDK a better tool for the entire Laravel community. We appreciate your time and effort!
 
 ---
 
