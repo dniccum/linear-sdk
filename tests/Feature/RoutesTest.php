@@ -164,3 +164,68 @@ test('the settings URL is the configured one, the settings route, or the path', 
 
     expect(Linear::settingsUrl())->toBe(url('linear'));
 });
+
+/**
+ * Register a named route after boot and make it resolvable by name.
+ */
+function registerLoginRoute(string $uri, string $name): void
+{
+    Route::get($uri, fn () => 'login')->name($name);
+    Route::getRoutes()->refreshNameLookups();
+}
+
+describe('login redirect', function () {
+    beforeEach(function () {
+        config(['linear.middleware' => ['web']]);
+        reloadLinearRoutes();
+    });
+
+    test('signed-out visitors are redirected to the login route by default', function () {
+        registerLoginRoute('/login', 'login');
+
+        $this->get(route('linear.settings'))->assertRedirect(route('login'));
+    });
+
+    test('signed-out JSON requests get a 401 instead of a redirect', function () {
+        registerLoginRoute('/login', 'login');
+
+        $this->getJson(route('linear.api.teams'))->assertUnauthorized();
+    });
+
+    test('the login route is configurable as a route name, a path or a URL', function (string $configured, string $expected) {
+        registerLoginRoute('/sign-in', 'auth.sign-in');
+        config(['linear.login_route' => $configured]);
+
+        $this->get(route('linear.settings'))->assertRedirect(str_starts_with($expected, 'http') ? $expected : url($expected));
+    })->with([
+        'route name' => ['auth.sign-in', 'sign-in'],
+        'path' => ['/members/login', 'members/login'],
+        'url' => ['https://sso.example.com/login', 'https://sso.example.com/login'],
+    ]);
+
+    test('an unresolvable or disabled login route keeps the 403', function (?string $configured) {
+        config(['linear.login_route' => $configured]);
+
+        $this->get(route('linear.settings'))->assertForbidden();
+        $this->getJson(route('linear.api.teams'))->assertForbidden();
+    })->with([
+        'not a route' => ['does-not-exist'],
+        'disabled' => [null],
+    ]);
+
+    test('a signed-in user without an owner is forbidden, not redirected', function () {
+        registerLoginRoute('/login', 'login');
+        Linear::resolveOwnerUsing(fn () => null);
+
+        $this->actingAs(User::factory()->create())->get(route('linear.settings'))->assertForbidden();
+    });
+
+    test('the login URL is shared with the configuration page', function () {
+        expect(Linear::loginUrl())->toBeNull();
+
+        registerLoginRoute('/login', 'login');
+
+        expect(Linear::loginUrl())->toBe(route('login'))
+            ->and(Linear::settingsFor(User::factory()->create())->toArray()['urls']['login'])->toBe(route('login'));
+    });
+});

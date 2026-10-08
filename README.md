@@ -211,6 +211,19 @@ Linear::authorizeUsing(fn (Request $request, Model $owner) => $request->user()->
 
 Change the URL or middleware with `path` and `middleware` in the config.
 
+### Signed-out users
+
+If a user's session expires while they are using the page (or they open it signed out), they are sent to your login page instead of seeing a raw error. The page's requests that come back `401` or `419` redirect the browser, and package routes reached without a signed-in user redirect there too. The destination defaults to your `login` route and is configurable:
+
+```php
+// config/linear.php (or LINEAR_LOGIN_ROUTE in .env)
+'login_route' => 'login',          // a route name
+// 'login_route' => '/sign-in',    // a path
+// 'login_route' => 'https://sso.example.com/login',   // a full URL
+// 'login_route' => null,          // disable: requests are refused with a 403 instead
+```
+
+
 ### Embedding or disabling it
 
 Embed the page inside your own layout, with the route group turned off:

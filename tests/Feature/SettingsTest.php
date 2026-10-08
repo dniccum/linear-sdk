@@ -35,7 +35,7 @@ test('the settings payload has exactly the keys of the HTTP contract', function 
 
     expect(array_keys($payload))->toBe(['configured', 'authMode', 'brand', 'csrf', 'urls', 'connection', 'destination', 'failures', 'flash'])
         ->and(array_keys($payload['brand']))->toBe(['name', 'logo', 'color'])
-        ->and(array_keys($payload['urls']))->toBe(['connect', 'apiKey', 'disconnect', 'teams', 'teamOptions', 'destination', 'retry'])
+        ->and(array_keys($payload['urls']))->toBe(['connect', 'apiKey', 'disconnect', 'teams', 'teamOptions', 'destination', 'retry', 'login'])
         ->and(array_keys($payload['connection']))->toBe(['status', 'organizationName', 'organizationUrlKey', 'userName', 'userEmail', 'lastError', 'lastSyncedAt'])
         ->and(array_keys($payload['destination']))->toBe(['sendMode', 'teamId', 'teamName', 'projectId', 'stateId', 'labelIds', 'priority', 'assigneeId'])
         ->and(array_keys($payload['failures'][0]))->toBe(['id', 'kind', 'subject', 'message', 'attempts', 'occurredAt', 'linkId'])
@@ -97,6 +97,7 @@ test('the endpoints are the named routes, with literal placeholders', function (
         'teamOptions' => url('linear/api/teams/{team}/options'),
         'destination' => url('linear/api/destination'),
         'retry' => url('linear/api/issues/{link}/retry'),
+        'login' => '',
     ]);
 });
 
@@ -112,6 +113,7 @@ test('endpoints of a disabled route group are empty', function () {
         'teamOptions' => '',
         'destination' => '',
         'retry' => '',
+        'login' => '',
     ]);
 });
 

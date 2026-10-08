@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace Dniccum\Linear\Data\Settings;
 
 use Dniccum\Linear\Data\Data;
+use Dniccum\Linear\Linear;
 use Illuminate\Support\Facades\Route;
 
 /**
  * The endpoints the configuration page talks to. A URL is an empty string when
- * the route group it belongs to is disabled. `teamOptions` contains the
+ * the route group it belongs to is disabled (`login` is empty when no login
+ * redirect is configured). `teamOptions` contains the
  * literal `{team}` placeholder and `retry` the literal `{link}` placeholder.
  */
 final readonly class UrlsData extends Data
@@ -22,6 +24,7 @@ final readonly class UrlsData extends Data
         public string $teamOptions,
         public string $destination,
         public string $retry,
+        public string $login = '',
     ) {}
 
     public static function resolve(): self
@@ -34,11 +37,12 @@ final readonly class UrlsData extends Data
             teamOptions: self::url('linear.api.team-options', ['team' => '__team__'], ['__team__' => '{team}']),
             destination: self::url('linear.api.destination.update'),
             retry: self::url('linear.api.issues.retry', ['link' => '__link__'], ['__link__' => '{link}']),
+            login: app(Linear::class)->loginUrl() ?? '',
         );
     }
 
     /**
-     * @return array{connect: string, apiKey: string, disconnect: string, teams: string, teamOptions: string, destination: string, retry: string}
+     * @return array{connect: string, apiKey: string, disconnect: string, teams: string, teamOptions: string, destination: string, retry: string, login: string}
      */
     public function toArray(): array
     {
@@ -50,6 +54,7 @@ final readonly class UrlsData extends Data
             'teamOptions' => $this->teamOptions,
             'destination' => $this->destination,
             'retry' => $this->retry,
+            'login' => $this->login,
         ];
     }
 

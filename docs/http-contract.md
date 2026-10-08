@@ -17,7 +17,7 @@ All routes live under `config('linear.path')` (default `linear`) and are named w
 | api | DELETE | `/linear/api/destination` | `linear.api.destination.destroy` |
 | api | POST | `/linear/api/issues/{link}/retry` | `linear.api.issues.retry` |
 
-JSON responses use camelCase keys. Validation failures return Laravel's standard 422 `{ message, errors: { field: string[] } }`. Linear outages return 503 `{ message }`; a connection that needs re-authorising returns 409 `{ message, reconnect: true }`.
+JSON responses use camelCase keys. Validation failures return Laravel's standard 422 `{ message, errors: { field: string[] } }`. A signed-out request returns 401 `{ message }` (or 419 when the session or CSRF token has expired); the bundled UI then sends the browser to `urls.login`. That URL comes from `config('linear.login_route')` (a route name, path or URL; default the `login` route; `null` disables it). Linear outages return 503 `{ message }`; a connection that needs re-authorising returns 409 `{ message, reconnect: true }`.
 
 ## Settings payload (embedded in the page)
 
@@ -33,6 +33,7 @@ interface Settings {
     connect: string; apiKey: string; disconnect: string;
     teams: string; teamOptions: string;   // teamOptions contains the literal "{team}" placeholder
     destination: string; retry: string;   // retry contains the literal "{link}" placeholder
+    login: string;                        // where to send a signed-out user; '' when no redirect is configured
   };
   connection: null | {
     status: 'active' | 'needs_reconnect';

@@ -122,6 +122,22 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Login redirect
+    |--------------------------------------------------------------------------
+    |
+    | Where a visitor is sent when they use the configuration page or its
+    | endpoints while signed out (an expired session, a 401 or a 419 CSRF
+    | failure). Accepts a route name (default "login"), a path such as
+    | "/sign-in" or a full URL. If it cannot be resolved, or is null, no
+    | redirect is attempted: requests are refused with a 403 and the page shows
+    | the error instead.
+    |
+    */
+
+    'login_route' => env('LINEAR_LOGIN_ROUTE', 'login'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Branding
     |--------------------------------------------------------------------------
     |

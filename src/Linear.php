@@ -122,6 +122,23 @@ class Linear
     }
 
     /**
+     * Where a signed-out visitor is sent: `linear.login_route` as a route name,
+     * a path or a full URL. Null when it is unset or cannot be resolved.
+     */
+    public function loginUrl(): ?string
+    {
+        $login = Json::nullableString(config('linear.login_route'));
+
+        return match (true) {
+            $login === null => null,
+            Route::has($login) => route($login),
+            str_starts_with($login, '/') => url($login),
+            str_starts_with($login, 'http://'), str_starts_with($login, 'https://') => $login,
+            default => null,
+        };
+    }
+
+    /**
      * Where users land after connecting or disconnecting: `linear.settings_url`,
      * else the settings page.
      */
