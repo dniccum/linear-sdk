@@ -115,14 +115,32 @@ export const isSettings: Guard<Settings> = shape<Settings>({
 
 // --- API responses ----------------------------------------------------------
 
-const isTeam: Guard<Team> = shape<Team>({ id: isString, name: isString, key: isString });
+const isTeam: Guard<Team> = shape<Team>({
+  id: isString,
+  name: isString,
+  key: isString,
+  color: nullableString,
+  icon: nullableString,
+});
 const isWorkflowState: Guard<WorkflowState> = shape<WorkflowState>({
   id: isString,
   name: isString,
   type: isString,
+  color: nullableString,
 });
-const isProject: Guard<Project> = shape<Project>({ id: isString, name: isString });
-const isMember: Guard<Member> = shape<Member>({ id: isString, name: isString });
+const isProject: Guard<Project> = shape<Project>({
+  id: isString,
+  name: isString,
+  color: nullableString,
+  icon: nullableString,
+});
+const isMember: Guard<Member> = shape<Member>({
+  id: isString,
+  name: isString,
+  avatarUrl: nullableString,
+  initials: nullableString,
+  avatarBackgroundColor: nullableString,
+});
 const isLabel: Guard<Label> = shape<Label>({ id: isString, name: isString, color: nullableString });
 
 export const isTeamsResponse: Guard<TeamsResponse> = shape<TeamsResponse>({ teams: arrayOf(isTeam) });
@@ -155,6 +173,54 @@ export const isMessageBody: Guard<{ message: string }> = shape<{ message: string
 export const isFieldErrorsBody: Guard<{ errors: Record<string, string[]> }> = shape<{
   errors: Record<string, string[]>;
 }>({ errors: recordOf(arrayOf(isString)) });
+
+/** The optional visual fields of each list in the API responses. */
+const VISUAL_FIELDS = {
+  teams: ['color', 'icon'],
+  states: ['color'],
+  projects: ['color', 'icon'],
+  members: ['avatarUrl', 'initials', 'avatarBackgroundColor'],
+} as const;
+
+/** `null` for any visual field that is missing (an older server) or not a string. */
+function withVisualDefaults(rows: unknown, fields: readonly string[]): unknown {
+  if (!Array.isArray(rows)) {
+    return rows;
+  }
+
+  return rows.map((row: unknown) => {
+    if (!isRecord(row)) {
+      return row;
+    }
+
+    const filled: Record<string, unknown> = { ...row };
+
+    for (const field of fields) {
+      filled[field] = typeof row[field] === 'string' ? row[field] : null;
+    }
+
+    return filled;
+  });
+}
+
+/** Fills in the visual fields (colour, icon, avatar) that older servers do not send yet, before `isTeamsResponse` runs. */
+export function withTeamsDefaults(value: unknown): unknown {
+  return isRecord(value) ? { ...value, teams: withVisualDefaults(value['teams'], VISUAL_FIELDS.teams) } : value;
+}
+
+/** Fills in the visual fields (colours, icons, avatars) that older servers do not send yet, before `isTeamOptions` runs. */
+export function withTeamOptionsDefaults(value: unknown): unknown {
+  if (!isRecord(value)) {
+    return value;
+  }
+
+  return {
+    ...value,
+    states: withVisualDefaults(value['states'], VISUAL_FIELDS.states),
+    projects: withVisualDefaults(value['projects'], VISUAL_FIELDS.projects),
+    members: withVisualDefaults(value['members'], VISUAL_FIELDS.members),
+  };
+}
 
 /**
  * Fills in what older servers do not send yet, before `isSettings` checks the

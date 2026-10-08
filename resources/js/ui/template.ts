@@ -47,6 +47,34 @@ const CHECK_ICON =
   '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 6 9 17l-5-5"/></svg>';
 
 /**
+ * The leading visual of a select item or of the trigger (see `ui/visuals.ts`).
+ * `visual` is an Alpine expression for a `SelectVisual | undefined | null`.
+ *
+ * Text (initials, emoji, letters) reaches the DOM through `x-text`, colours
+ * through `:style` custom properties and the avatar URL through `:src`. The one
+ * `x-html` renders the static SVG that `visualMarkup()` picks from a closed
+ * table, so it never contains API data. The whole thing is decorative
+ * (`aria-hidden`); the accessible name stays the item's label.
+ */
+function visualTemplate(visual: string): string {
+  return `
+    <template x-if="${visual}?.kind === 'avatar'">
+      <span class="linear-visual linear-visual--avatar" aria-hidden="true" :style="visualStyle(${visual})">
+        <span class="linear-visual__text" x-text="visualText(${visual})"></span>
+        <template x-if="${visual}.url !== null">
+          <img class="linear-visual__image" :src="${visual}.url" alt="" width="20" height="20" loading="lazy" decoding="async" referrerpolicy="no-referrer" @error="onVisualError($event)">
+        </template>
+      </span>
+    </template>
+    <template x-if="${visual}?.kind === 'tile'">
+      <span class="linear-visual" :class="visualClasses(${visual})" aria-hidden="true" :style="visualStyle(${visual})" x-text="visualText(${visual})"></span>
+    </template>
+    <template x-if="${visual} && ${visual}.kind !== 'avatar' && ${visual}.kind !== 'tile'">
+      <span class="linear-visual" :class="visualClasses(${visual})" aria-hidden="true" :style="visualStyle(${visual})" x-html="visualMarkup(${visual})"></span>
+    </template>`;
+}
+
+/**
  * A shadcn-style select (see `components/select.ts`): a combobox button, a
  * popup listbox and a hidden input. Use it instead of a native `<select>`.
  */
@@ -85,7 +113,7 @@ export function selectTemplate(spec: SelectSpec): string {
     :disabled="isDisabled"
     @click="toggle()"
     @keydown="onKeydown($event)"
-  >
+  >${visualTemplate('selectedVisual')}
     <span class="linear-select__value" :class="{ 'linear-select__value--placeholder': isPlaceholder }" x-text="label"></span>
     ${CHEVRON_ICON}
   </button>
@@ -100,7 +128,7 @@ export function selectTemplate(spec: SelectSpec): string {
         :aria-disabled="item.disabled === true"
         @click="choose(index)"
         @pointermove="highlight(index)"
-      >
+      >${visualTemplate('item.visual')}
         <span class="linear-select__item-label" x-text="item.label"></span>
         <span class="linear-select__check" x-show="isSelected(index)">${CHECK_ICON}</span>
       </div>

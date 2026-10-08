@@ -5,8 +5,10 @@ declare(strict_types=1);
 use Dniccum\Linear\Data\Destination;
 use Dniccum\Linear\Data\IssuePayload;
 use Dniccum\Linear\Data\Member;
+use Dniccum\Linear\Data\Project;
 use Dniccum\Linear\Data\Team;
 use Dniccum\Linear\Data\TeamOptions;
+use Dniccum\Linear\Data\WorkflowState;
 use Dniccum\Linear\Enums\LinearAuthMode;
 use Dniccum\Linear\Enums\LinearConnectionStatus;
 use Dniccum\Linear\Exceptions\LinearApiException;
@@ -46,10 +48,41 @@ test('team options exclude closed projects, group labels and inactive members', 
 
     expect($options)->toBeInstanceOf(TeamOptions::class)
         ->and($options->team->name)->toBe('Support')
-        ->and(array_column($options->projects, 'id'))->toBe(['project-1'])
+        ->and($options->team->color)->toBe('#5e6ad2')
+        ->and($options->team->icon)->toBe('🛟')
+        ->and($options->projects)->toEqual([new Project('project-1', 'Inbox', '#4cb782', '📥')])
+        ->and($options->states)->toEqual([
+            new WorkflowState('state-1', 'Triage', 'triage', '#bec2c8'),
+            new WorkflowState('state-2', 'Todo', 'unstarted', '#e2e2e2'),
+        ])
         ->and(array_column($options->states, 'id'))->toBe(['state-1', 'state-2'])
         ->and(array_column($options->labels, 'id'))->toBe(['label-1'])
-        ->and($options->members)->toEqual([new Member('user-1', 'ada')]);
+        ->and($options->members)->toEqual([new Member('user-1', 'ada', 'https://public.linear.app/ada.png', 'AL', '#5e6ad2')]);
+});
+
+test('team options request the visual fields and cope with payloads that omit them', function () {
+    $page = fn (array $nodes): array => ['nodes' => $nodes, 'pageInfo' => ['hasNextPage' => false, 'endCursor' => null]];
+
+    fakeLinearApi([
+        ...linearTeamOptionsOperations(),
+        'TeamOptions' => ['team' => ['id' => 'team-1', 'name' => 'Support', 'key' => 'SUP', 'color' => null, 'states' => ['nodes' => [['id' => 's', 'name' => 'Open', 'type' => 'started']]]]],
+        'TeamProjects' => ['team' => ['projects' => $page([['id' => 'p', 'name' => 'Bare']])]],
+        'TeamMembers' => ['team' => ['members' => $page([
+            ['id' => 'u-1', 'name' => 'Zed', 'displayName' => 'zed', 'avatarUrl' => '', 'initials' => 'Z'],
+            ['id' => 'u-2', 'name' => 'Amy', 'displayName' => null, 'avatarUrl' => null],
+        ])]],
+    ]);
+
+    $options = app(LinearClient::class)->teamOptions(linearConnection(), 'team-1');
+
+    expect($options->team)->toEqual(new Team('team-1', 'Support', 'SUP'))
+        ->and($options->states)->toEqual([new WorkflowState('s', 'Open', 'started')])
+        ->and($options->projects)->toEqual([new Project('p', 'Bare')])
+        ->and($options->members)->toEqual([new Member('u-2', 'Amy'), new Member('u-1', 'zed', null, 'Z')]);
+
+    $queries = Http::recorded()->map(fn (array $pair): string => (string) $pair[0]['query'])->filter()->implode("\n");
+
+    expect($queries)->toContain('id name key color icon', 'nodes { id name type color position }', 'nodes { id name color icon completedAt canceledAt }', 'avatarUrl initials avatarBackgroundColor');
 });
 
 test('team options fail with an invalid request when the team is not visible', function () {

@@ -814,3 +814,43 @@ describe('scrolling the highlighted item into view', () => {
     expect(content.scrollTop).toBe(7);
   });
 });
+
+describe('visuals', () => {
+  const WITH_VISUALS: readonly SelectItem[] = [
+    { value: '', label: 'Nobody', visual: { kind: 'icon', name: 'user-empty', color: null } },
+    { value: 'ada', label: 'Ada', visual: { kind: 'avatar', url: null, initials: 'A', color: '#5e6ad2' } },
+    { value: 'bob', label: 'Bob' },
+  ];
+
+  it('exposes the selected item\'s visual for the trigger', () => {
+    const { select, state } = setup({}, WITH_VISUALS, 'ada');
+
+    expect(select.selectedVisual).toEqual({ kind: 'avatar', url: null, initials: 'A', color: '#5e6ad2' });
+
+    state.value = '';
+    expect(select.selectedVisual).toEqual({ kind: 'icon', name: 'user-empty', color: null });
+  });
+
+  it('has no visual for an item without one, or when nothing matches the value', () => {
+    const { select, state } = setup({}, WITH_VISUALS, 'bob');
+
+    expect(select.selectedVisual).toBeNull();
+
+    state.value = 'missing';
+    expect(select.selectedVisual).toBeNull();
+  });
+
+  it('offers the helpers the template uses to render a visual', () => {
+    const { select } = setup({}, WITH_VISUALS, 'ada');
+    const visual = select.selectedVisual;
+
+    expect(select.visualText(visual)).toBe('A');
+    expect(select.visualStyle(visual)).toMatchObject({ '--linear-visual-bg': '#5e6ad2' });
+    expect(select.visualClasses(visual)).toEqual(['linear-visual--avatar']);
+    expect(select.visualMarkup({ kind: 'priority', level: 0 })).toContain('<svg');
+
+    const image = document.createElement('img');
+    select.onVisualError({ target: image } as unknown as Event);
+    expect(image.hidden).toBe(true);
+  });
+});

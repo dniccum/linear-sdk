@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Dniccum\Linear\Data\Settings;
 
 use Dniccum\Linear\Data\Data;
+use Dniccum\Linear\Enums\LinearPriority;
 use Dniccum\Linear\Enums\LinearSendMode;
 use Dniccum\Linear\Models\LinearDestination;
 
@@ -37,7 +38,7 @@ final readonly class DestinationData extends Data
             projectId: $destination->project_id,
             stateId: $destination->state_id,
             labelIds: array_values($destination->label_ids ?? []),
-            priority: $destination->priority ?? 0,
+            priority: LinearPriority::fromNumber($destination->priority)->value,
             assigneeId: $destination->assignee_id,
         );
     }

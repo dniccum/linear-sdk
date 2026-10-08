@@ -69,7 +69,7 @@ class LinearClient
         $teams = $this->paginate($connection, <<<'GRAPHQL'
             query Teams($after: String) {
               teams(first: 250, after: $after) {
-                nodes { id name key }
+                nodes { id name key color icon }
                 pageInfo { hasNextPage endCursor }
               }
             }
@@ -93,8 +93,8 @@ class LinearClient
         $data = $this->query($connection, <<<'GRAPHQL'
             query TeamOptions($teamId: String!) {
               team(id: $teamId) {
-                id name key
-                states(first: 250) { nodes { id name type position } }
+                id name key color icon
+                states(first: 250) { nodes { id name type color position } }
               }
             }
             GRAPHQL, ['teamId' => $teamId]);
@@ -111,7 +111,7 @@ class LinearClient
             query TeamProjects($teamId: String!, $after: String) {
               team(id: $teamId) {
                 projects(first: 250, after: $after) {
-                  nodes { id name completedAt canceledAt }
+                  nodes { id name color icon completedAt canceledAt }
                   pageInfo { hasNextPage endCursor }
                 }
               }
@@ -122,7 +122,7 @@ class LinearClient
             query TeamMembers($teamId: String!, $after: String) {
               team(id: $teamId) {
                 members(first: 250, after: $after) {
-                  nodes { id name displayName active }
+                  nodes { id name displayName active avatarUrl initials avatarBackgroundColor }
                   pageInfo { hasNextPage endCursor }
                 }
               }
@@ -153,31 +153,17 @@ class LinearClient
         // them to an issue directly.
         $assignableLabels = array_values(array_filter($labels, fn (array $label): bool => ! (bool) ($label['isGroup'] ?? false)));
 
-        $activeMembers = [];
-
-        foreach ($members as $member) {
-            if ((bool) ($member['active'] ?? true)) {
-                $activeMembers[] = [
-                    'id' => Json::string($member['id'] ?? null),
-                    'name' => Json::nullableString($member['displayName'] ?? null) ?? Json::string($member['name'] ?? null),
-                ];
-            }
-        }
+        // Members are sorted by the name they are shown with (the display name).
+        $activeMembers = array_map(
+            fn (array $member): Member => Member::fromArray($member),
+            array_values(array_filter($members, fn (array $member): bool => (bool) ($member['active'] ?? true))),
+        );
+        usort($activeMembers, fn (Member $a, Member $b): int => strnatcasecmp($a->name, $b->name));
 
         return new TeamOptions(
             team: Team::fromArray($team),
-            projects: array_map(
-                fn (array $project): Project => new Project(Json::string($project['id'] ?? null), Json::string($project['name'] ?? null)),
-                self::sortedByName($openProjects),
-            ),
-            states: array_map(
-                fn (array $state): WorkflowState => new WorkflowState(
-                    Json::string($state['id'] ?? null),
-                    Json::string($state['name'] ?? null),
-                    Json::string($state['type'] ?? null),
-                ),
-                $states,
-            ),
+            projects: array_map(fn (array $project): Project => Project::fromArray($project), self::sortedByName($openProjects)),
+            states: array_map(fn (array $state): WorkflowState => WorkflowState::fromArray($state), $states),
             labels: array_map(
                 fn (array $label): Label => new Label(
                     Json::string($label['id'] ?? null),
@@ -186,10 +172,7 @@ class LinearClient
                 ),
                 self::sortedByName($assignableLabels),
             ),
-            members: array_map(
-                fn (array $member): Member => new Member(Json::string($member['id'] ?? null), Json::string($member['name'] ?? null)),
-                self::sortedByName($activeMembers),
-            ),
+            members: $activeMembers,
         );
     }
 

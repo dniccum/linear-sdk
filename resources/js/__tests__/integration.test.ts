@@ -11,15 +11,19 @@ import {
   jsonResponse,
   makeConnection,
   makeFailure,
+  makeMember,
   makeOptions,
+  makeProject,
   makeSettings,
+  makeState,
+  makeTeam,
 } from './fixtures';
 
 type Handler = (url: string, init: RequestInit) => Response | Promise<Response>;
 
 const TEAMS = [
-  { id: 'team-1', name: 'Support', key: 'SUP' },
-  { id: 'team-2', name: 'Engineering', key: 'ENG' },
+  makeTeam({ id: 'team-1', name: 'Support', key: 'SUP' }),
+  makeTeam({ id: 'team-2', name: 'Engineering', key: 'ENG' }),
 ];
 
 /** Default backend: teams, per-team options, save and delete all succeed. */
@@ -31,7 +35,7 @@ const happyBackend: Handler = (url, init) => {
   if (/\/linear\/api\/teams\/[^/]+\/options$/.test(url)) {
     const team = url.split('/teams/')[1]?.split('/')[0] ?? '';
     return jsonResponse(
-      makeOptions({ projects: [{ id: `project-${team}`, name: `Project ${team}` }, { id: 'project-1', name: 'Website' }] }),
+      makeOptions({ projects: [makeProject({ id: `project-${team}`, name: `Project ${team}` }), makeProject({ id: 'project-1', name: 'Website' })] }),
     );
   }
 
@@ -132,7 +136,7 @@ async function pick(app: App, id: string, label: string): Promise<void> {
   });
 
   const option = [...el(app, `#${id}-listbox`).querySelectorAll<HTMLElement>('[role="option"]')].find(
-    (candidate) => candidate.textContent.trim() === label,
+    (candidate) => candidate.querySelector('.linear-select__item-label')?.textContent === label,
   );
   if (option === undefined) {
     throw new Error(`No option "${label}" in #${id}`);
@@ -1192,5 +1196,174 @@ describe('accessibility of the rendered page', () => {
 
     const ids = [...app.container.querySelectorAll('[id]')].map((element) => element.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe('select visuals', () => {
+  const visualOptions = makeOptions({
+    states: [
+      makeState({ id: 'state-1', name: 'In Progress', type: 'started', color: '#f2c94c' }),
+      makeState({ id: 'state-2', name: 'Done', type: 'completed', color: '#5e6ad2' }),
+      makeState({ id: 'state-3', name: 'Mystery', type: 'brand-new', color: 'not-a-colour' }),
+    ],
+    projects: [
+      makeProject({ id: 'project-1', name: 'Launch', color: '#26b5ce', icon: '🚀' }),
+      makeProject({ id: 'project-2', name: 'Plumbing', color: '#eb5757', icon: 'Wrench' }),
+    ],
+    members: [
+      makeMember({ id: 'member-1', name: 'Grace Hopper', avatarUrl: 'https://img.test/grace.png', initials: 'GH', avatarBackgroundColor: '#f2994a' }),
+      makeMember({ id: 'member-2', name: 'Alan Turing', avatarUrl: null, initials: 'AT', avatarBackgroundColor: '#4cb782' }),
+      makeMember({ id: 'member-3', name: 'Mallory', avatarUrl: 'javascript:alert(1)', initials: '<img src=x onerror=alert(1)>' }),
+    ],
+  });
+
+  const backend: Handler = (url, init) => {
+    if (url === '/linear/api/teams') {
+      return jsonResponse({
+        teams: [makeTeam({ id: 'team-1', name: 'Support', key: 'SUP', color: '#5e6ad2', icon: '🛟' }), makeTeam({ id: 'team-2', name: 'Eng', key: 'ENG', icon: 'Bug' })],
+      });
+    }
+
+    return /\/options$/.test(url) ? jsonResponse(visualOptions) : happyBackend(url, init);
+  };
+
+  async function ready(): Promise<App> {
+    const app = await boot(makeSettings({ failures: [] }), backend);
+    await settled(app);
+    await vi.waitFor(() => {
+      expect(el(app, '#linear-assignee .linear-visual')).toBeTruthy();
+    });
+    return app;
+  }
+
+  async function open(app: App, id: string): Promise<HTMLElement> {
+    trigger(app, id).click();
+    await vi.waitFor(() => {
+      expect(trigger(app, id).getAttribute('aria-expanded')).toBe('true');
+    });
+    return el(app, `#${id}-listbox`);
+  }
+
+  const triggerVisual = (app: App, id: string): HTMLElement => el(app, `button#${id} > .linear-visual`);
+
+  it('shows the selected value\'s visual in each trigger, decorative and before the label', async () => {
+    const app = await ready();
+
+    const team = triggerVisual(app, 'linear-team');
+    expect(team.classList.contains('linear-visual--tile')).toBe(true);
+    expect(team.classList.contains('linear-visual--solid')).toBe(true);
+    expect(team.textContent).toBe('🛟');
+    expect(team.style.getPropertyValue('--linear-visual-bg')).toBe('#5e6ad2');
+
+    const project = triggerVisual(app, 'linear-project');
+    expect(project.classList.contains('linear-visual--soft')).toBe(true);
+    expect(project.textContent).toBe('🚀');
+
+    const state = triggerVisual(app, 'linear-state');
+    expect(state.classList.contains('linear-visual--status-started')).toBe(true);
+    expect(state.querySelector('svg')).not.toBeNull();
+    expect(state.style.getPropertyValue('--linear-visual-color')).toBe('#f2c94c');
+
+    expect(triggerVisual(app, 'linear-priority').classList.contains('linear-visual--priority')).toBe(true);
+    expect(triggerVisual(app, 'linear-priority').querySelectorAll('.linear-visual__bar:not(.linear-visual__bar--off)')).toHaveLength(3);
+
+    const assignee = triggerVisual(app, 'linear-assignee');
+    expect(assignee.classList.contains('linear-visual--avatar')).toBe(true);
+    expect(assignee.querySelector('.linear-visual__text')?.textContent).toBe('GH');
+
+    for (const id of ['linear-team', 'linear-project', 'linear-state', 'linear-priority', 'linear-assignee']) {
+      expect(triggerVisual(app, id).getAttribute('aria-hidden')).toBe('true');
+      expect(trigger(app, id).getAttribute('aria-labelledby')).toBe(`${id}-label`);
+    }
+    expect(shown(app, 'linear-assignee')).toBe('Grace Hopper');
+  });
+
+  it('renders a visual on every option of every select and keeps the label as the text', async () => {
+    const app = await ready();
+
+    for (const [id, labels] of [
+      ['linear-team', ['Select a team', 'Support (SUP)', 'Eng (ENG)']],
+      ['linear-project', ['No project', 'Launch', 'Plumbing']],
+      ['linear-state', ['Team default', 'In Progress', 'Done', 'Mystery']],
+      ['linear-priority', ['No priority', 'Urgent', 'High', 'Medium', 'Low']],
+      ['linear-assignee', ['Unassigned', 'Grace Hopper', 'Alan Turing', 'Mallory']],
+    ] as const) {
+      const list = await open(app, id);
+      const options = [...list.querySelectorAll('[role="option"]')];
+
+      expect(options.map((option) => option.querySelector('.linear-select__item-label')?.textContent)).toEqual(labels);
+      options.forEach((option, index) => {
+        // Every item but the team placeholder has a visual.
+        expect(option.querySelector('.linear-visual') !== null, `${id} option ${index}`).toBe(id !== 'linear-team' || index > 0);
+      });
+      key(app, id, 'Escape');
+    }
+  });
+
+  function key(app: App, id: string, name: string): void {
+    trigger(app, id).dispatchEvent(new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true }));
+  }
+
+  it('draws status, priority and "none" icons and falls back to a plain circle for an unknown type', async () => {
+    const app = await ready();
+
+    const states = [...(await open(app, 'linear-state')).querySelectorAll('[role="option"]')];
+    expect(states[0]?.querySelector('.linear-visual--icon svg')).not.toBeNull();
+    expect(states[2]?.querySelector('.linear-visual--status-completed path')).not.toBeNull();
+    expect(states[3]?.querySelector('.linear-visual--status-unstarted svg')).not.toBeNull();
+    expect((states[3]?.querySelector('.linear-visual') as HTMLElement).style.getPropertyValue('--linear-visual-color')).toBe('');
+    key(app, 'linear-state', 'Escape');
+
+    const priorities = [...(await open(app, 'linear-priority')).querySelectorAll('[role="option"]')];
+    expect(priorities[1]?.querySelector('.linear-visual__urgent')).not.toBeNull();
+    expect(priorities[4]?.querySelectorAll('.linear-visual__bar:not(.linear-visual__bar--off)')).toHaveLength(1);
+    key(app, 'linear-priority', 'Escape');
+
+    const projects = [...(await open(app, 'linear-project')).querySelectorAll('[role="option"]')];
+    expect(projects[0]?.querySelector('.linear-visual--icon svg')).not.toBeNull();
+    expect(projects[2]?.querySelector('.linear-visual--icon svg')).not.toBeNull();
+  });
+
+  it('loads avatars lazily without a referrer and falls back to the initials when the image fails', async () => {
+    const app = await ready();
+    const image = el<HTMLImageElement>(app, 'button#linear-assignee .linear-visual__image');
+
+    expect(image.getAttribute('src')).toBe('https://img.test/grace.png');
+    expect(image.getAttribute('loading')).toBe('lazy');
+    expect(image.getAttribute('referrerpolicy')).toBe('no-referrer');
+    expect(image.getAttribute('alt')).toBe('');
+    expect(image.hidden).toBe(false);
+
+    image.dispatchEvent(new Event('error'));
+
+    expect(image.hidden).toBe(true);
+    expect(el(app, 'button#linear-assignee .linear-visual__text').textContent).toBe('GH');
+  });
+
+  it('shows initials only without an image URL, and never renders unsafe URLs or markup from the API', async () => {
+    const app = await ready();
+    const list = await open(app, 'linear-assignee');
+    const options = [...list.querySelectorAll('[role="option"]')];
+
+    expect(options[2]?.querySelector('img')).toBeNull();
+    expect(options[2]?.querySelector('.linear-visual__text')?.textContent).toBe('AT');
+    expect(options[3]?.querySelector('img')).toBeNull();
+    expect(list.querySelector('img[src^="javascript"]')).toBeNull();
+    expect(options[3]?.querySelector('.linear-visual__text')?.textContent).toBe('<IM');
+    expect(options[3]?.querySelector('.linear-visual__text img')).toBeNull();
+  });
+
+  it('updates the trigger visual when another value is chosen', async () => {
+    const app = await ready();
+
+    await pick(app, 'linear-project', 'Plumbing');
+
+    const visual = triggerVisual(app, 'linear-project');
+    expect(visual.classList.contains('linear-visual--icon')).toBe(true);
+    expect(visual.style.getPropertyValue('--linear-visual-color')).toBe('#eb5757');
+
+    await pick(app, 'linear-assignee', 'Unassigned');
+
+    expect(triggerVisual(app, 'linear-assignee').classList.contains('linear-visual--icon')).toBe(true);
   });
 });

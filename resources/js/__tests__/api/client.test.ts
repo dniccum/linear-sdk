@@ -95,22 +95,43 @@ describe('request plumbing', () => {
   });
 
   it('uses the global fetch when none is injected', async () => {
-    const globalFetch = vi.fn(async () => jsonResponse({ teams: [{ id: '1', name: 'Support', key: 'SUP' }] }));
+    const globalFetch = vi.fn(async () => jsonResponse({ teams: [{ id: '1', name: 'Support', key: 'SUP', color: null, icon: null }] }));
     vi.stubGlobal('fetch', globalFetch);
 
     const teams = await createClient(config).getTeams();
 
-    expect(teams).toEqual([{ id: '1', name: 'Support', key: 'SUP' }]);
+    expect(teams).toEqual([{ id: '1', name: 'Support', key: 'SUP', color: null, icon: null }]);
     expect(globalFetch).toHaveBeenCalledWith('/linear/api/teams', expect.objectContaining({ method: 'GET' }));
   });
 });
 
 describe('endpoints', () => {
   it('getTeams returns the teams', async () => {
-    const teams = [{ id: 't1', name: 'Support', key: 'SUP' }];
+    const teams = [{ id: 't1', name: 'Support', key: 'SUP', color: '#5e6ad2', icon: '🛟' }];
     const { client } = clientWith(async () => jsonResponse({ teams }));
 
     await expect(client.getTeams()).resolves.toEqual(teams);
+  });
+
+  it('getTeams and getTeamOptions default the visual fields an older server does not send', async () => {
+    const { client } = clientWith(async (url) =>
+      url.endsWith('/teams')
+        ? jsonResponse({ teams: [{ id: 't1', name: 'Support', key: 'SUP' }] })
+        : jsonResponse({
+            states: [{ id: 's', name: 'Todo', type: 'unstarted' }],
+            projects: [{ id: 'p', name: 'Inbox' }],
+            members: [{ id: 'm', name: 'Ada' }],
+            labels: [],
+          }),
+    );
+
+    await expect(client.getTeams()).resolves.toEqual([{ id: 't1', name: 'Support', key: 'SUP', color: null, icon: null }]);
+    await expect(client.getTeamOptions('t1')).resolves.toEqual({
+      states: [{ id: 's', name: 'Todo', type: 'unstarted', color: null }],
+      projects: [{ id: 'p', name: 'Inbox', color: null, icon: null }],
+      members: [{ id: 'm', name: 'Ada', avatarUrl: null, initials: null, avatarBackgroundColor: null }],
+      labels: [],
+    });
   });
 
   it('getTeamOptions fills {team} and returns the options', async () => {

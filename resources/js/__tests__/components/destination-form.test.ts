@@ -9,11 +9,23 @@ import {
 } from '../../components/destination-form';
 import { LINEAR_EVENTS } from '../../components/events';
 import type { Destination, TeamOptions } from '../../types';
-import { captureEvents, deferred, makeDestination, makeHost, makeOptions, withMagics } from '../fixtures';
+import {
+  captureEvents,
+  deferred,
+  makeDestination,
+  makeHost,
+  makeMember,
+  makeOptions,
+  makeProject,
+  makeState,
+  makeTeam,
+  withMagics,
+} from '../fixtures';
+import { NO_PROJECT_VISUAL, TEAM_DEFAULT_VISUAL, UNASSIGNED_VISUAL } from '../../ui/visuals';
 
 const TEAMS = [
-  { id: 'team-1', name: 'Support', key: 'SUP' },
-  { id: 'team-2', name: 'Engineering', key: 'ENG' },
+  makeTeam({ id: 'team-1', name: 'Support', key: 'SUP' }),
+  makeTeam({ id: 'team-2', name: 'Engineering', key: 'ENG' }),
 ];
 
 type Client = DestinationFormDeps['client'];
@@ -253,12 +265,12 @@ describe('loadOptions', () => {
     form.draft.teamId = 'team-2';
     const secondLoad = form.loadOptions();
 
-    second.resolve(makeOptions({ projects: [{ id: 'p-eng', name: 'Platform' }] }));
+    second.resolve(makeOptions({ projects: [makeProject({ id: 'p-eng', name: 'Platform' })] }));
     await secondLoad;
-    first.resolve(makeOptions({ projects: [{ id: 'p-sup', name: 'Website' }] }));
+    first.resolve(makeOptions({ projects: [makeProject({ id: 'p-sup', name: 'Website' })] }));
     await firstLoad;
 
-    expect(form.options.projects).toEqual([{ id: 'p-eng', name: 'Platform' }]);
+    expect(form.options.projects).toEqual([makeProject({ id: 'p-eng', name: 'Platform' })]);
     expect(form.optionsState).toBe('ready');
   });
 
@@ -572,8 +584,8 @@ describe('select items', () => {
 
     expect(form.teamItems).toEqual([
       { value: '', label: 'Select a team' },
-      { value: 'team-1', label: 'Support (SUP)' },
-      { value: 'team-2', label: 'Engineering (ENG)' },
+      { value: 'team-1', label: 'Support (SUP)', visual: { kind: 'tile', glyph: 'SU', tone: 'solid', color: null } },
+      { value: 'team-2', label: 'Engineering (ENG)', visual: { kind: 'tile', glyph: 'EN', tone: 'solid', color: null } },
     ]);
   });
 
@@ -581,19 +593,19 @@ describe('select items', () => {
     const { form } = setup();
 
     expect(form.priorityItems).toEqual([
-      { value: 0, label: 'No priority' },
-      { value: 1, label: 'Urgent' },
-      { value: 2, label: 'High' },
-      { value: 3, label: 'Medium' },
-      { value: 4, label: 'Low' },
+      { value: 0, label: 'No priority', visual: { kind: 'priority', level: 0 } },
+      { value: 1, label: 'Urgent', visual: { kind: 'priority', level: 1 } },
+      { value: 2, label: 'High', visual: { kind: 'priority', level: 2 } },
+      { value: 3, label: 'Medium', visual: { kind: 'priority', level: 3 } },
+      { value: 4, label: 'Low', visual: { kind: 'priority', level: 4 } },
     ]);
   });
 
   it('project, state and assignee items keep an empty "none" choice before the loaded options', () => {
     const { form } = setup();
-    expect(form.projectItems).toEqual([{ value: '', label: 'No project' }]);
-    expect(form.stateItems).toEqual([{ value: '', label: 'Team default' }]);
-    expect(form.assigneeItems).toEqual([{ value: '', label: 'Unassigned' }]);
+    expect(form.projectItems).toEqual([{ value: '', label: 'No project', visual: NO_PROJECT_VISUAL }]);
+    expect(form.stateItems).toEqual([{ value: '', label: 'Team default', visual: TEAM_DEFAULT_VISUAL }]);
+    expect(form.assigneeItems).toEqual([{ value: '', label: 'Unassigned', visual: UNASSIGNED_VISUAL }]);
 
     form.options = makeOptions();
 
@@ -604,6 +616,22 @@ describe('select items', () => {
     ]);
     expect(form.stateItems.map((item) => item.label)).toEqual(['Team default', 'Triage', 'Todo']);
     expect(form.assigneeItems.map((item) => item.label)).toEqual(['Unassigned', 'Grace Hopper', 'Alan Turing']);
+  });
+
+  it('every item carries the visual built from its API data', () => {
+    const { form } = setup();
+    form.teamsState = 'ready';
+    form.teams = [makeTeam({ id: 't', name: 'Bugs', key: 'bug', color: '#eb5757', icon: '🐛' })];
+    form.options = makeOptions({
+      states: [makeState({ id: 's', name: 'Doing', type: 'started', color: '#f2c94c' })],
+      projects: [makeProject({ id: 'p', name: 'Launch', color: '#26b5ce', icon: '🚀' })],
+      members: [makeMember({ id: 'm', name: 'Ada Lovelace', avatarUrl: 'https://x.test/a.png', initials: 'AL', avatarBackgroundColor: '#5e6ad2' })],
+    });
+
+    expect(form.teamItems[1]?.visual).toEqual({ kind: 'tile', glyph: '🐛', tone: 'solid', color: '#eb5757' });
+    expect(form.stateItems[1]?.visual).toEqual({ kind: 'status', status: 'started', color: '#f2c94c' });
+    expect(form.projectItems[1]?.visual).toEqual({ kind: 'tile', glyph: '🚀', tone: 'soft', color: '#26b5ce' });
+    expect(form.assigneeItems[1]?.visual).toEqual({ kind: 'avatar', url: 'https://x.test/a.png', initials: 'AL', color: '#5e6ad2' });
   });
 });
 

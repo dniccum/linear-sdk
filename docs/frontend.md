@@ -9,6 +9,7 @@ The configuration page is a small TypeScript application built with [Alpine.js](
 - [Running the dev server against the workbench](#running-the-dev-server-against-the-workbench)
 - [Rebuilding and committing assets](#rebuilding-and-committing-assets)
 - [The select component](#the-select-component)
+- [Select visuals](#select-visuals)
 - [Expired sessions and the login redirect](#expired-sessions-and-the-login-redirect)
 - [Adding a component, step by step](#adding-a-component-step-by-step)
 - [TypeScript conventions](#typescript-conventions)
@@ -63,6 +64,7 @@ resources/
       failures-list.ts      `failuresList`: retry with optimistic removal
       select.ts             `linearSelect`: reusable accessible custom select (shadcn/ui style)
       events.ts             Typed event names + emit/reportReconnect/focusRef helpers
+    ui/visuals.ts           SelectVisual descriptors, their builders/validation, and the static SVG icons
     ui/template.ts          The whole UI as Alpine-annotated HTML strings + selectTemplate() + renderFatalError()
     __tests__/              Vitest tests (mirrors the source layout) and shared fixtures
 public/build/               Compiled assets and `.vite/manifest.json` (committed)
@@ -191,6 +193,37 @@ selectTemplate({
 To reuse it: build the items in a getter on the parent component (a `''` item is the "none" choice and is shown muted), add a handler that writes the value, put `selectTemplate({...})` in the field next to a `<label id="{id}-label" for="{id}">`, and style nothing else: the `.linear-select*` classes in `linear.css` (trigger, content, item, item--active, item--selected, check, chevron, empty) cover light, dark and mobile. `data-linear-ref` set through `ref` lands on the trigger, so `focusRef()` focuses the button. Use `selectTemplate` rather than writing the markup by hand so the ids and ARIA wiring stay consistent.
 
 Tests: `__tests__/components/select.test.ts` drives the component directly (keyboard, typeahead, placement with mocked geometry, scrolling); `integration.test.ts` drives the real rendered selects with Alpine (`pick(app, id, label)` clicks the trigger and an option).
+
+## Select visuals
+
+Each select item can carry an optional leading visual (`SelectItem.visual`, typed `SelectVisual`), drawn in the open list and, for the selected item, in the trigger before the label. The logic lives in `ui/visuals.ts`, which has no Alpine or DOM dependency apart from `hideBrokenImage`.
+
+| `kind` | Fields | Rendered as | Used for |
+|---|---|---|---|
+| `avatar` | `url` (`http(s)` or `null`), `initials`, `color` | A 20px circle with the initials on `color`, and, when there is a `url`, an `<img>` over it (`alt=""`, `loading="lazy"`, `referrerpolicy="no-referrer"`). On `error` the image is hidden (`onVisualError`), leaving the initials. | assignee |
+| `tile` | `glyph` (emoji or 1-3 letters), `tone` (`solid` or `soft`), `color` | A rounded 20px tile; `solid` fills it with `color` and picks readable text, `soft` tints it and keeps the emoji colours. | team (solid), project with an emoji (soft) |
+| `status` | `status` (`StatusKind`), `color` | Linear-style SVG tinted with `color`: dashed circle (backlog), ring (unstarted, and any unknown type), ring with a half pie (started), disc with a check (completed), disc with an x (canceled, duplicate), ring with an arrow (triage). | status |
+| `priority` | `level` (0-4) | Three muted dashes, an orange rounded square with `!`, or a three-bar signal with 3/2/1 bars filled. | priority |
+| `icon` | `name` (`user-empty`, `project`, `project-empty`, `status-empty`), `color` | A generic glyph; dashed ones are the muted "none" choices. | "Unassigned", "No project", "Team default", project without an emoji |
+
+The `destination-form.ts` item getters build them with `teamVisual()`, `projectVisual()`, `stateVisual()`, `memberVisual()` and `priorityVisual()` (plus the `UNASSIGNED_VISUAL`, `NO_PROJECT_VISUAL` and `TEAM_DEFAULT_VISUAL` constants). The builders are where API data is checked, once:
+
+- colours go through `normalizeHexColor()` and become a lowercase hex string or `null` (the stylesheet then uses the accent or muted colour);
+- avatar URLs must parse as `http:` or `https:`, anything else (`javascript:`, `data:`, relative) becomes `null`;
+- a status `type` is narrowed to the closed `StatusKind` list, unknown types draw as an empty circle;
+- an `icon` is an emoji only if `emojiOf()` finds one at its start (or it is a known `:shortcode:`); otherwise teams show letters from their key and projects show the box glyph. `icon` is never treated as a URL.
+
+**Rendering is safe by construction.** `selectTemplate()` renders the visual with `visualTemplate()`: initials and emoji through `x-text`, colours through `:style` custom properties (`--linear-visual-bg`, `--linear-visual-fg`, `--linear-visual-color`) produced by `visualStyle()`, the image through `:src`. The only `x-html` is `visualMarkup(visual)`, which returns a static SVG chosen from `STATUS_SVG`, `ICON_SVG` or `PRIORITY_SVG` by a closed enum, so no API string is ever parsed as HTML. The whole visual is `aria-hidden`; the accessible name stays the item label, and keyboard and ARIA behaviour is unchanged. Styles are the `.linear-visual*` classes in `linear.css`.
+
+Old servers: `withTeamsDefaults()` and `withTeamOptionsDefaults()` in `schema.ts` run before the response guards and turn any missing (or non-string) `color`, `icon`, `avatarUrl`, `initials` or `avatarBackgroundColor` into `null`, so payloads from before these fields existed still validate and the selects simply show no colours.
+
+### Adding a visual
+
+1. Add the descriptor to the `SelectVisual` union in `ui/visuals.ts` (a new `kind` with only validated fields: hex strings or `null`, closed enums, `http(s)` URLs) and a builder that takes the API object and validates it. Add a test for each rejected input.
+2. Teach the helpers about it: `visualStyle()` (the CSS custom properties), `visualClasses()` (BEM modifier), and either `visualText()` (text content) or `visualMarkup()` (a new static SVG constant, with no interpolated data). The `switch` statements make the compiler point at each place.
+3. If it needs a new element shape, extend `visualTemplate()` in `ui/template.ts` (keep text in `x-text`, never put API data in `x-html`), and add its CSS under `.linear-visual--<kind>` in `linear.css`, using `--linear-visual-*` with theme defaults so it works in light, dark and at 375px.
+4. Set `visual` in the item getter (`teamItems`, `projectItems`, ...) in `destination-form.ts`.
+5. Tests: `__tests__/ui/visuals.test.ts` (builder, style, markup), `__tests__/ui/template.test.ts` (markup is decorative and static) and the `select visuals` block in `__tests__/integration.test.ts` (rendered in trigger and list). Coverage stays at 100% with no new exclusions.
 
 ## Expired sessions and the login redirect
 
@@ -411,5 +444,5 @@ Resolve them from the container and call `execute()` (every action takes the own
 ## Notes: accessibility, CSP, localisation
 
 - **Accessibility.** One `h1`, labelled `section`s, a `label` for every control (the custom selects link their `<label>` through `for` and `aria-labelledby`), `fieldset`/`legend` for the send-mode radios and label checkboxes, `aria-describedby` for hints and errors, `aria-invalid` on failing fields, persistent `role="status"`/`role="alert"` live regions for banners, `aria-busy` + a visible and screen-reader caption while options load, visible `:focus-visible` outlines, focus moved to the right control after disclosure/removal, `prefers-reduced-motion` and `forced-colors` support. The integration tests assert label and `aria-describedby` integrity on the rendered page; keep them green when you add UI.
-- **Content Security Policy.** Alpine's standard build evaluates expressions with `new Function`, which needs `'unsafe-eval'`. Strict-CSP hosts can switch to `@alpinejs/csp`, but its expression grammar is more limited (no inline `&&`/ternaries), so the templates and components would need adjusting. The templates already keep logic in getters and methods to make that practical.
+- **Content Security Policy.** Alpine's standard build evaluates expressions with `new Function`, which needs `'unsafe-eval'`. Strict-CSP hosts can switch to `@alpinejs/csp`, but its expression grammar is more limited (no inline `&&`/ternaries), so the templates and components would need adjusting. The templates already keep logic in getters and methods to make that practical, with one exception: the select visuals use a few inline conditions (`item.visual?.kind === 'tile'`) that would move into helpers. The avatar images are loaded directly from Linear, so a strict policy also needs `img-src` to allow their hosts (see the README); the initials fallback shows when they are blocked.
 - **Localisation.** User-facing strings are English literals in `ui/template.ts` and the component files. To localise, send a dictionary in the settings payload (extend `Settings` and `isSettings`) and look strings up where they are produced.

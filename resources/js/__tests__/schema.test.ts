@@ -12,8 +12,10 @@ import {
   isTeamOptions,
   isTeamsResponse,
   withSettingsDefaults,
+  withTeamOptionsDefaults,
+  withTeamsDefaults,
 } from '../schema';
-import { makeConnection, makeDestination, makeFailure, makeOptions, makeSettings } from './fixtures';
+import { makeConnection, makeDestination, makeFailure, makeOptions, makeSettings, makeTeam } from './fixtures';
 
 describe('isSettings', () => {
   it('accepts a complete payload', () => {
@@ -81,7 +83,10 @@ describe('entity guards', () => {
 
 describe('API response guards', () => {
   it('isTeamsResponse', () => {
-    expect(isTeamsResponse({ teams: [{ id: '1', name: 'Support', key: 'SUP' }] })).toBe(true);
+    expect(isTeamsResponse({ teams: [makeTeam()] })).toBe(true);
+    expect(isTeamsResponse({ teams: [makeTeam({ color: '#5e6ad2', icon: '🛟' })] })).toBe(true);
+    expect(isTeamsResponse({ teams: [{ id: '1', name: 'Support', key: 'SUP' }] })).toBe(false);
+    expect(isTeamsResponse({ teams: [makeTeam({ color: 5 as unknown as string })] })).toBe(false);
     expect(isTeamsResponse({ teams: [] })).toBe(true);
     expect(isTeamsResponse({ teams: [{ id: '1', name: 'Support' }] })).toBe(false);
     expect(isTeamsResponse({})).toBe(false);
@@ -93,6 +98,20 @@ describe('API response guards', () => {
     expect(isTeamOptions({ ...makeOptions(), states: [{ id: '1', name: 'Todo' }] })).toBe(false);
     expect(isTeamOptions({ ...makeOptions(), projects: 'none' })).toBe(false);
     expect(isTeamOptions({ ...makeOptions(), members: [{ id: 1, name: 'A' }] })).toBe(false);
+    expect(isTeamOptions({ ...makeOptions(), members: [{ id: 'm', name: 'A' }] })).toBe(false);
+    expect(isTeamOptions({ ...makeOptions(), states: [{ id: 's', name: 'S', type: 'started' }] })).toBe(false);
+    expect(isTeamOptions({ ...makeOptions(), projects: [{ id: 'p', name: 'P' }] })).toBe(false);
+  });
+
+  it('isTeamOptions accepts populated visual fields', () => {
+    expect(
+      isTeamOptions({
+        states: [{ id: 's', name: 'S', type: 'started', color: '#f2c94c' }],
+        projects: [{ id: 'p', name: 'P', color: '#4cb782', icon: '📥' }],
+        members: [{ id: 'm', name: 'M', avatarUrl: 'https://x.test/a.png', initials: 'M', avatarBackgroundColor: '#5e6ad2' }],
+        labels: [],
+      }),
+    ).toBe(true);
   });
 
   it('isDestinationResponse allows a null destination', () => {
@@ -125,6 +144,39 @@ describe('error body guards', () => {
     expect(isFieldErrorsBody({ errors: { teamId: ['Required'] } })).toBe(true);
     expect(isFieldErrorsBody({ errors: { teamId: 'Required' } })).toBe(false);
     expect(isFieldErrorsBody({})).toBe(false);
+  });
+});
+
+describe('withTeamsDefaults and withTeamOptionsDefaults', () => {
+  it('fill missing, null or non-string visual fields with null so older payloads validate', () => {
+    const teams = withTeamsDefaults({ teams: [{ id: '1', name: 'Support', key: 'SUP', color: 5 }] });
+
+    expect(teams).toEqual({ teams: [{ id: '1', name: 'Support', key: 'SUP', color: null, icon: null }] });
+    expect(isTeamsResponse(teams)).toBe(true);
+
+    const options = withTeamOptionsDefaults({
+      states: [{ id: 's', name: 'S', type: 'started' }],
+      projects: [{ id: 'p', name: 'P', color: '#4cb782' }],
+      members: [{ id: 'm', name: 'M', avatarUrl: 'https://x.test/a.png' }],
+      labels: [],
+    });
+
+    expect(options).toEqual({
+      states: [{ id: 's', name: 'S', type: 'started', color: null }],
+      projects: [{ id: 'p', name: 'P', color: '#4cb782', icon: null }],
+      members: [{ id: 'm', name: 'M', avatarUrl: 'https://x.test/a.png', initials: null, avatarBackgroundColor: null }],
+      labels: [],
+    });
+    expect(isTeamOptions(options)).toBe(true);
+  });
+
+  it('leave anything that is not the expected shape alone for the guards to reject', () => {
+    expect(withTeamsDefaults('nope')).toBe('nope');
+    expect(withTeamsDefaults({ teams: 'x' })).toEqual({ teams: 'x' });
+    expect(withTeamsDefaults({ teams: ['x'] })).toEqual({ teams: ['x'] });
+    expect(withTeamOptionsDefaults(null)).toBeNull();
+    expect(withTeamOptionsDefaults({})).toEqual({ states: undefined, projects: undefined, members: undefined });
+    expect(isTeamOptions(withTeamOptionsDefaults({}))).toBe(false);
   });
 });
 

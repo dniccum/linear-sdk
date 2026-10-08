@@ -98,22 +98,37 @@ export interface Team {
   id: string;
   name: string;
   key: string;
+  /** Hex colour such as `#5e6ad2`; `null` when Linear has none. */
+  color: string | null;
+  /** An emoji or one of Linear's icon names (for example `Bug`). Never a URL. */
+  icon: string | null;
 }
 
 export interface WorkflowState {
   id: string;
   name: string;
+  /** `triage`, `backlog`, `unstarted`, `started`, `completed`, `canceled` or `duplicate`; other values are tolerated. */
   type: string;
+  /** Hex colour such as `#f2c94c`. */
+  color: string | null;
 }
 
 export interface Project {
   id: string;
   name: string;
+  color: string | null;
+  /** An emoji or one of Linear's icon names. Never a URL. */
+  icon: string | null;
 }
 
 export interface Member {
   id: string;
   name: string;
+  /** An image URL on Linear's avatar host, or `null` when the member has no photo. */
+  avatarUrl: string | null;
+  initials: string | null;
+  /** Hex colour behind the initials. */
+  avatarBackgroundColor: string | null;
 }
 
 export interface Label {

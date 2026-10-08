@@ -50,7 +50,7 @@ final readonly class TeamOptions extends Data
     }
 
     /**
-     * @return array{states: list<array<string, string>>, projects: list<array<string, string>>, members: list<array<string, string>>, labels: list<array<string, string|null>>}
+     * @return array{states: list<array<string, string|null>>, projects: list<array<string, string|null>>, members: list<array<string, string|null>>, labels: list<array<string, string|null>>}
      */
     public function toArray(): array
     {

@@ -147,9 +147,9 @@ test('team options check membership of destination IDs', function () {
         ->and($options->hasLabels([]))->toBeTrue()
         ->and($options->hasLabels(['label-1', 'label-x']))->toBeFalse()
         ->and($options->jsonSerialize())->toBe([
-            'states' => [['id' => 'state-1', 'name' => 'Triage', 'type' => 'triage']],
-            'projects' => [['id' => 'project-1', 'name' => 'Inbox']],
-            'members' => [['id' => 'user-1', 'name' => 'Ada']],
+            'states' => [['id' => 'state-1', 'name' => 'Triage', 'type' => 'triage', 'color' => null]],
+            'projects' => [['id' => 'project-1', 'name' => 'Inbox', 'color' => null, 'icon' => null]],
+            'members' => [['id' => 'user-1', 'name' => 'Ada', 'avatarUrl' => null, 'initials' => null, 'avatarBackgroundColor' => null]],
             'labels' => [['id' => 'label-1', 'name' => 'Bug', 'color' => null]],
         ]);
 });
@@ -163,6 +163,23 @@ test('API nodes are read defensively', function () {
         ->and(Viewer::fromArray(['id' => 'v', 'organization' => ['id' => 'o', 'name' => 'Acme']]))
         ->toEqual(new Viewer('v', null, null, new Organization('o', 'Acme', null)))
         ->and((new ResolvedDestination(new Destination('t'), new Team('t', 'N', 'K')))->team->key)->toBe('K');
+});
+
+test('visual fields hydrate from API nodes and default to null when absent', function () {
+    $team = Team::fromArray(['id' => 't', 'name' => 'N', 'key' => 'K', 'color' => '#abc', 'icon' => '🛟']);
+    $project = Project::fromArray(['id' => 'p', 'name' => 'P', 'color' => '#def', 'icon' => 'Box']);
+    $state = WorkflowState::fromArray(['id' => 's', 'name' => 'S', 'type' => 'started', 'color' => '#123']);
+    $member = Member::fromArray(['id' => 'm', 'name' => 'Full', 'displayName' => 'disp', 'avatarUrl' => 'https://x.test/a.png', 'initials' => 'D', 'avatarBackgroundColor' => '#456']);
+
+    expect($team->toArray())->toBe(['id' => 't', 'name' => 'N', 'key' => 'K', 'color' => '#abc', 'icon' => '🛟'])
+        ->and($project->toArray())->toBe(['id' => 'p', 'name' => 'P', 'color' => '#def', 'icon' => 'Box'])
+        ->and($state->toArray())->toBe(['id' => 's', 'name' => 'S', 'type' => 'started', 'color' => '#123'])
+        ->and($member->toArray())->toBe(['id' => 'm', 'name' => 'disp', 'avatarUrl' => 'https://x.test/a.png', 'initials' => 'D', 'avatarBackgroundColor' => '#456'])
+        ->and(Team::fromArray(['id' => 't', 'name' => 'N', 'key' => 'K', 'color' => '', 'icon' => 5]))->toEqual(new Team('t', 'N', 'K'))
+        ->and(Project::fromArray(['id' => 'p', 'name' => 'P']))->toEqual(new Project('p', 'P'))
+        ->and(WorkflowState::fromArray(['id' => 's', 'name' => 'S', 'type' => 'started', 'color' => null]))->toEqual(new WorkflowState('s', 'S', 'started'))
+        ->and(Member::fromArray(['id' => 'm', 'name' => 'Full', 'displayName' => '']))->toEqual(new Member('m', 'Full'))
+        ->and(Member::fromArray(['id' => 'm']))->toEqual(new Member('m', ''));
 });
 
 test('the JSON helpers narrow untyped values', function () {

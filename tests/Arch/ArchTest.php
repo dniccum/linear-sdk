@@ -32,7 +32,13 @@ arch('data transfer objects are final, apart from the base class')
 arch('enums are backed enums')
     ->expect('Dniccum\Linear\Enums')
     ->toBeEnums()
-    ->toBeStringBackedEnums();
+    ->toBeStringBackedEnums()
+    ->ignoring('Dniccum\Linear\Enums\LinearPriority');
+
+// Priorities are numbers in Linear's API and in the HTTP contract.
+arch('the priority enum is an int backed enum')
+    ->expect('Dniccum\Linear\Enums\LinearPriority')
+    ->toBeIntBackedEnums();
 
 arch('contracts are interfaces')
     ->expect('Dniccum\Linear\Contracts')

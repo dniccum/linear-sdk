@@ -61,18 +61,41 @@ interface Destination {
 
 ## API payloads
 
-`GET teams` → `{ teams: Array<{ id: string; name: string; key: string }> }`
+`GET teams` → `{ teams: Team[] }`
 
-`GET teams/{team}/options` →
+`GET teams/{team}/options` → `TeamOptions`
 
 ```ts
-{
-  states:   Array<{ id: string; name: string; type: string }>;
-  projects: Array<{ id: string; name: string }>;
-  members:  Array<{ id: string; name: string }>;
+interface Team {
+  id: string; name: string; key: string;
+  color: string | null;   // hex, e.g. "#5e6ad2"
+  icon: string | null;    // an emoji or a Linear icon name ("Bug"); never a URL
+}
+
+interface TeamOptions {
+  states:   Array<{
+    id: string; name: string;
+    type: string;          // triage | backlog | unstarted | started | completed | canceled | duplicate
+    color: string | null;  // hex
+  }>;
+  projects: Array<{
+    id: string; name: string;
+    color: string | null;  // hex
+    icon: string | null;   // an emoji or a Linear icon name; never a URL
+  }>;
+  members:  Array<{
+    id: string; name: string;
+    avatarUrl: string | null;              // absolute image URL; null when the member has no photo
+    initials: string | null;               // e.g. "AL", for the fallback avatar
+    avatarBackgroundColor: string | null;  // hex behind the initials
+  }>;
   labels:   Array<{ id: string; name: string; color: string | null }>;
 }
 ```
+
+The visual fields (`color`, `icon`, `avatarUrl`, `initials`, `avatarBackgroundColor`) are always present and `null` when Linear has no value. Priorities (`0` none, `1` urgent, `2` high, `3` medium, `4` low) have no API data; they are fixed, and `Dniccum\Linear\Enums\LinearPriority` lists them for PHP. The bundled UI tolerates responses from an older server that lack these keys (it treats them as `null`), but other clients should not rely on that.
+
+Avatars are loaded by the browser directly from `avatarUrl`; a strict Content-Security-Policy needs to allow those hosts in `img-src`, and the initials are the fallback when the image is blocked. The DTOs behind these payloads, how to render each field, and a worked custom page are in [docs/custom-ui.md](custom-ui.md).
 
 `PUT destination` body is `Destination` minus `teamName` (the server resolves it) and returns `{ destination: Destination }`.
 `DELETE destination` returns `{ destination: null }`.

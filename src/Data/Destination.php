@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Dniccum\Linear\Data;
 
+use Dniccum\Linear\Enums\LinearPriority;
 use Dniccum\Linear\Support\Json;
 
 /**
@@ -41,6 +42,14 @@ final readonly class Destination extends Data
             priority: Json::integer($data['priority'] ?? null),
             assigneeId: Json::nullableString($data['assignee_id'] ?? null),
         );
+    }
+
+    /**
+     * The priority as an enum; an unset priority is "no priority".
+     */
+    public function priorityLevel(): LinearPriority
+    {
+        return LinearPriority::fromNumber($this->priority);
     }
 
     /**

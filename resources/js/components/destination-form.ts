@@ -22,6 +22,16 @@ import {
 } from './destination-draft';
 import { emit, focusRef, LINEAR_EVENTS, reportReconnect } from './events';
 import type { SelectItem, SelectValue } from './select';
+import {
+  memberVisual,
+  NO_PROJECT_VISUAL,
+  priorityVisual,
+  projectVisual,
+  stateVisual,
+  TEAM_DEFAULT_VISUAL,
+  teamVisual,
+  UNASSIGNED_VISUAL,
+} from '../ui/visuals';
 
 export const SAVED_MESSAGE = 'Destination saved.';
 export const REMOVED_MESSAGE = 'Destination settings removed.';
@@ -125,24 +135,33 @@ export function destinationForm({ host, destination, client }: DestinationFormDe
     get teamItems() {
       return [
         { value: '', label: this.teamPlaceholder },
-        ...this.teams.map((team) => ({ value: team.id, label: `${team.name} (${team.key})` })),
+        ...this.teams.map((team) => ({ value: team.id, label: `${team.name} (${team.key})`, visual: teamVisual(team) })),
       ];
     },
 
     get priorityItems() {
-      return this.priorities.map((priority) => ({ value: priority.value, label: priority.label }));
+      return this.priorities.map((priority) => ({ value: priority.value, label: priority.label, visual: priorityVisual(priority.value) }));
     },
 
     get projectItems() {
-      return [{ value: '', label: 'No project' }, ...this.options.projects.map((project) => ({ value: project.id, label: project.name }))];
+      return [
+        { value: '', label: 'No project', visual: NO_PROJECT_VISUAL },
+        ...this.options.projects.map((project) => ({ value: project.id, label: project.name, visual: projectVisual(project) })),
+      ];
     },
 
     get stateItems() {
-      return [{ value: '', label: 'Team default' }, ...this.options.states.map((state) => ({ value: state.id, label: state.name }))];
+      return [
+        { value: '', label: 'Team default', visual: TEAM_DEFAULT_VISUAL },
+        ...this.options.states.map((state) => ({ value: state.id, label: state.name, visual: stateVisual(state) })),
+      ];
     },
 
     get assigneeItems() {
-      return [{ value: '', label: 'Unassigned' }, ...this.options.members.map((member) => ({ value: member.id, label: member.name }))];
+      return [
+        { value: '', label: 'Unassigned', visual: UNASSIGNED_VISUAL },
+        ...this.options.members.map((member) => ({ value: member.id, label: member.name, visual: memberVisual(member) })),
+      ];
     },
 
     async init() {

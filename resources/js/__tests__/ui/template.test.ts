@@ -182,7 +182,57 @@ describe('selectTemplate', () => {
     expect(listbox?.getAttribute('aria-labelledby')).toBe('linear-x-label');
     expect(select.querySelector('input[type="hidden"]')?.getAttribute('name')).toBe('xId');
     expect(select.querySelector('.linear-select__chevron path')?.getAttribute('d')).toBe('m6 9 6 6 6-6');
-    expect(select.querySelector('template')?.content.querySelector('.linear-select__check path')?.getAttribute('d')).toBe('M20 6 9 17l-5-5');
+    expect(select.querySelector<HTMLTemplateElement>('template[x-for]')?.content.querySelector('.linear-select__check path')?.getAttribute('d')).toBe('M20 6 9 17l-5-5');
+  });
+
+  it('renders the leading visual in the trigger and in every option, as decorative static markup', () => {
+    const select = render(SPEC);
+    const trigger = select.querySelector('button.linear-select__trigger');
+    const option = select.querySelector<HTMLTemplateElement>('template[x-for]')?.content.querySelector('[role="option"]');
+
+    for (const [scope, expression] of [
+      [trigger, 'selectedVisual'],
+      [option, 'item.visual'],
+    ] as const) {
+      const templates = [...(scope?.querySelectorAll('template') ?? [])].map((template) => template.getAttribute('x-if'));
+
+      expect(templates.some((condition) => condition?.startsWith(`${expression}?.kind === 'avatar'`))).toBe(true);
+      expect(templates.some((condition) => condition?.startsWith(`${expression}?.kind === 'tile'`))).toBe(true);
+      expect(templates.some((condition) => condition?.startsWith(`${expression} &&`))).toBe(true);
+    }
+
+    // Unwrap the templates, as Alpine's x-if would, to inspect what could render.
+    for (let template = select.querySelector('template'); template !== null; template = select.querySelector('template')) {
+      template.replaceWith(template.content);
+    }
+
+    const visuals = [...select.querySelectorAll('.linear-visual')];
+    expect(visuals.length).toBeGreaterThan(0);
+    expect(visuals.every((visual) => visual.getAttribute('aria-hidden') === 'true')).toBe(true);
+    // The label stays the accessible name; the trigger's visuals come before it.
+    expect(select.querySelector('button.linear-select__trigger')?.firstElementChild?.classList.contains('linear-visual')).toBe(true);
+  });
+
+  it('binds avatar images safely: bound src, empty alt, lazy, no referrer, error fallback', () => {
+    const select = render(SPEC);
+    const image = [...select.querySelectorAll('template')]
+      .map((template) => template.content.querySelector('img') ?? template.content.querySelector('template')?.content.querySelector('img'))
+      .find((candidate) => candidate !== null && candidate !== undefined);
+
+    expect(image?.getAttribute(':src')).toMatch(/\.url$/);
+    expect(image?.getAttribute('alt')).toBe('');
+    expect(image?.getAttribute('loading')).toBe('lazy');
+    expect(image?.getAttribute('referrerpolicy')).toBe('no-referrer');
+    expect(image?.getAttribute('@error')).toBe('onVisualError($event)');
+    expect(image?.hasAttribute('src')).toBe(false);
+  });
+
+  it('binds text through x-text and only static SVG through x-html', () => {
+    const markup = selectTemplate(SPEC);
+
+    expect(markup.match(/x-html="/g)).toHaveLength(2);
+    expect([...markup.matchAll(/x-html="([^"]+)"/g)].every((match) => match[1]?.startsWith('visualMarkup(') === true)).toBe(true);
+    expect(markup).toContain('x-text="visualText(');
   });
 
   it('builds the component configuration from the spec', () => {

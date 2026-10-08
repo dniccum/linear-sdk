@@ -13,6 +13,7 @@ use Illuminate\Support\Env;
 use Illuminate\Support\ServiceProvider;
 use Workbench\App\Http\Middleware\LoginDemoUser;
 use Workbench\App\Models\User;
+use Workbench\App\Support\DemoData;
 
 /**
  * Wires up the workbench app used to develop the configuration page:
@@ -47,7 +48,7 @@ final class WorkbenchServiceProvider extends ServiceProvider
         $router->pushMiddlewareToGroup('web', LoginDemoUser::class);
 
         if (config('linear.workbench.fake') === true) {
-            Linear::fake();
+            Linear::fake()->withTeams(DemoData::teams())->withTeamOptions(DemoData::options());
         }
     }
 }

@@ -1,5 +1,39 @@
 import { vi } from 'vitest';
-import type { AlpineMagics, Connection, Destination, FailureItem, Settings, TeamOptions } from '../types';
+import type {
+  AlpineMagics,
+  Connection,
+  Destination,
+  FailureItem,
+  Member,
+  Project,
+  Settings,
+  Team,
+  TeamOptions,
+  WorkflowState,
+} from '../types';
+
+export function makeTeam(overrides: Partial<Team> = {}): Team {
+  return { id: 'team-1', name: 'Support', key: 'SUP', color: null, icon: null, ...overrides };
+}
+
+export function makeState(overrides: Partial<WorkflowState> = {}): WorkflowState {
+  return { id: 'state-1', name: 'Triage', type: 'triage', color: null, ...overrides };
+}
+
+export function makeProject(overrides: Partial<Project> = {}): Project {
+  return { id: 'project-1', name: 'Website', color: null, icon: null, ...overrides };
+}
+
+export function makeMember(overrides: Partial<Member> = {}): Member {
+  return {
+    id: 'member-1',
+    name: 'Grace Hopper',
+    avatarUrl: null,
+    initials: null,
+    avatarBackgroundColor: null,
+    ...overrides,
+  };
+}
 
 export function makeConnection(overrides: Partial<Connection> = {}): Connection {
   return {
@@ -44,16 +78,16 @@ export function makeFailure(overrides: Partial<FailureItem> = {}): FailureItem {
 export function makeOptions(overrides: Partial<TeamOptions> = {}): TeamOptions {
   return {
     states: [
-      { id: 'state-1', name: 'Triage', type: 'triage' },
-      { id: 'state-2', name: 'Todo', type: 'unstarted' },
+      makeState({ id: 'state-1', name: 'Triage', type: 'triage' }),
+      makeState({ id: 'state-2', name: 'Todo', type: 'unstarted' }),
     ],
     projects: [
-      { id: 'project-1', name: 'Website' },
-      { id: 'project-2', name: 'Mobile' },
+      makeProject({ id: 'project-1', name: 'Website' }),
+      makeProject({ id: 'project-2', name: 'Mobile' }),
     ],
     members: [
-      { id: 'member-1', name: 'Grace Hopper' },
-      { id: 'member-2', name: 'Alan Turing' },
+      makeMember({ id: 'member-1', name: 'Grace Hopper' }),
+      makeMember({ id: 'member-2', name: 'Alan Turing' }),
     ],
     labels: [
       { id: 'label-1', name: 'Bug', color: '#eb5757' },

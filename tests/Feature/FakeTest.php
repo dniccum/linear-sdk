@@ -127,7 +127,7 @@ test('teams and team options can be arranged', function () {
 
     $this->fake->withTeams([new Team('team-9', 'Bugs', 'BUG')])->withTeamOptions($options);
 
-    $this->actingAs($this->owner)->getJson(route('linear.api.teams'))->assertExactJson(['teams' => [['id' => 'team-9', 'name' => 'Bugs', 'key' => 'BUG']]]);
+    $this->actingAs($this->owner)->getJson(route('linear.api.teams'))->assertExactJson(['teams' => [['id' => 'team-9', 'name' => 'Bugs', 'key' => 'BUG', 'color' => null, 'icon' => null]]]);
     $this->actingAs($this->owner)->getJson(route('linear.api.team-options', 'team-9'))->assertJsonPath('members.0.name', 'Grace');
     $this->actingAs($this->owner)->putJson(route('linear.api.destination.update'), ['sendMode' => 'manual', 'teamId' => 'team-9', 'projectId' => 'p-1'])->assertOk()->assertJsonPath('destination.teamName', 'Bugs');
 });

@@ -76,7 +76,7 @@ final class FakeLinearClient extends LinearClient
     {
         parent::__construct($http, $oauth);
 
-        $this->teams = [new Team('team-1', 'Support', 'SUP')];
+        $this->teams = [new Team('team-1', 'Support', 'SUP', '#5e6ad2', '🛟')];
         $this->viewer = new Viewer('viewer-1', 'Ada Lovelace', 'ada@example.com', new Organization('org-1', 'Acme', 'acme'));
     }
 
@@ -250,10 +250,10 @@ final class FakeLinearClient extends LinearClient
     {
         return new TeamOptions(
             team: $team,
-            projects: [new Project('project-1', 'Inbox')],
-            states: [new WorkflowState('state-1', 'Triage', 'triage'), new WorkflowState('state-2', 'Todo', 'unstarted')],
+            projects: [new Project('project-1', 'Inbox', '#4cb782', '📥')],
+            states: [new WorkflowState('state-1', 'Triage', 'triage', '#bec2c8'), new WorkflowState('state-2', 'Todo', 'unstarted', '#e2e2e2')],
             labels: [new Label('label-1', 'Bug', '#eb5757')],
-            members: [new Member('user-1', 'Ada Lovelace')],
+            members: [new Member('user-1', 'Ada Lovelace', null, 'AL', '#5e6ad2')],
         );
     }
 }

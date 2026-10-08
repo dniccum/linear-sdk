@@ -106,18 +106,20 @@ function linearTeamOptionsOperations(): array
             'id' => 'team-1',
             'name' => 'Support',
             'key' => 'SUP',
+            'color' => '#5e6ad2',
+            'icon' => '🛟',
             'states' => ['nodes' => [
-                ['id' => 'state-2', 'name' => 'Todo', 'type' => 'unstarted', 'position' => 2],
-                ['id' => 'state-1', 'name' => 'Triage', 'type' => 'triage', 'position' => 1],
+                ['id' => 'state-2', 'name' => 'Todo', 'type' => 'unstarted', 'color' => '#e2e2e2', 'position' => 2],
+                ['id' => 'state-1', 'name' => 'Triage', 'type' => 'triage', 'color' => '#bec2c8', 'position' => 1],
             ]],
         ]],
         'TeamProjects' => ['team' => ['projects' => $page([
-            ['id' => 'project-1', 'name' => 'Inbox', 'completedAt' => null, 'canceledAt' => null],
-            ['id' => 'project-done', 'name' => 'Old', 'completedAt' => '2026-01-01T00:00:00Z', 'canceledAt' => null],
+            ['id' => 'project-1', 'name' => 'Inbox', 'color' => '#4cb782', 'icon' => '📥', 'completedAt' => null, 'canceledAt' => null],
+            ['id' => 'project-done', 'name' => 'Old', 'color' => '#999999', 'icon' => null, 'completedAt' => '2026-01-01T00:00:00Z', 'canceledAt' => null],
         ])]],
         'TeamMembers' => ['team' => ['members' => $page([
-            ['id' => 'user-1', 'name' => 'Ada Lovelace', 'displayName' => 'ada', 'active' => true],
-            ['id' => 'user-gone', 'name' => 'Gone', 'displayName' => 'gone', 'active' => false],
+            ['id' => 'user-1', 'name' => 'Ada Lovelace', 'displayName' => 'ada', 'active' => true, 'avatarUrl' => 'https://public.linear.app/ada.png', 'initials' => 'AL', 'avatarBackgroundColor' => '#5e6ad2'],
+            ['id' => 'user-gone', 'name' => 'Gone', 'displayName' => 'gone', 'active' => false, 'avatarUrl' => null, 'initials' => 'G', 'avatarBackgroundColor' => '#000000'],
         ])]],
         'TeamLabels' => ['issueLabels' => $page([
             ['id' => 'label-1', 'name' => 'Bug', 'color' => '#f00', 'isGroup' => false],

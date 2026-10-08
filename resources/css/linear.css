@@ -30,6 +30,8 @@
   --linear-danger: #b42318;
   --linear-danger-bg: #fdecea;
 
+  --linear-priority-urgent: #e5530f;
+
   --linear-radius: 12px;
   --linear-radius-sm: 8px;
   --linear-shadow: 0 1px 2px rgb(16 24 40 / 6%), 0 1px 3px rgb(16 24 40 / 8%);
@@ -56,6 +58,7 @@
     --linear-warning-bg: #2d2410;
     --linear-danger: #ff8a80;
     --linear-danger-bg: #301614;
+    --linear-priority-urgent: #ff7a3d;
     --linear-shadow: 0 1px 2px rgb(0 0 0 / 40%);
     --linear-popover-shadow: 0 8px 16px -4px rgb(0 0 0 / 55%), 0 2px 6px -2px rgb(0 0 0 / 45%);
   }
@@ -499,6 +502,7 @@ body:has(> .linear-app) {
   min-height: 32px;
   padding: 6px 32px 6px 8px;
   border-radius: calc(var(--linear-radius-sm) - 2px);
+  gap: 8px;
   cursor: default;
   user-select: none;
   -webkit-user-select: none;
@@ -544,6 +548,115 @@ body:has(> .linear-app) {
 .linear-select__empty {
   padding: 6px 8px;
   color: var(--linear-text-muted);
+}
+
+/*
+ * Leading visuals (see resources/js/ui/visuals.ts): colour tiles for teams and
+ * projects, avatars for members, and status/priority icons. They are
+ * decorative (aria-hidden). Colours arrive as inline custom properties:
+ *
+ *   --linear-visual-bg     background of a tile or avatar
+ *   --linear-visual-fg     text colour on that background
+ *   --linear-visual-color  tint of a status or icon glyph
+ *
+ * Each has a theme-aware default here, used when Linear sends no colour.
+ */
+.linear-visual {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  overflow: hidden;
+  border-radius: 6px;
+  color: var(--linear-text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  user-select: none;
+  -webkit-user-select: none;
+  forced-color-adjust: none;
+}
+
+.linear-visual--tile {
+  background: var(--linear-visual-bg, var(--linear-accent));
+  color: var(--linear-visual-fg, var(--linear-accent-contrast));
+}
+
+/* Emoji on a tile: a little larger than letters, and left in their own colours. */
+.linear-visual--solid {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.linear-visual--soft {
+  background: color-mix(in srgb, var(--linear-visual-bg, var(--linear-accent)) 22%, transparent);
+  color: var(--linear-text);
+  font-size: 12px;
+}
+
+.linear-visual--avatar {
+  background: var(--linear-visual-bg, var(--linear-surface-muted));
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--linear-text) 10%, transparent);
+  color: var(--linear-visual-fg, var(--linear-text-muted));
+  font-size: 9px;
+}
+
+/* The image sits over the initials; if it fails (or is blocked) it is hidden and the initials show. */
+.linear-visual__image {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--linear-surface-muted);
+  object-fit: cover;
+}
+
+.linear-visual__image[hidden] {
+  display: none;
+}
+
+/* Icon glyphs: no tile, tinted by the state or project colour (lightly mixed with the text colour so pale colours stay visible in light mode and dark ones in dark mode). */
+.linear-visual--status,
+.linear-visual--icon,
+.linear-visual--priority {
+  background: none;
+  border-radius: 0;
+  overflow: visible;
+}
+
+.linear-visual--status,
+.linear-visual--icon {
+  color: color-mix(in srgb, var(--linear-visual-color, var(--linear-text-muted)) 85%, var(--linear-text));
+}
+
+.linear-visual--priority {
+  color: var(--linear-text);
+}
+
+.linear-visual__svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  overflow: visible;
+}
+
+.linear-visual__bar {
+  fill: currentcolor;
+}
+
+.linear-visual__bar--off {
+  fill: var(--linear-border-strong);
+}
+
+.linear-visual__urgent {
+  fill: var(--linear-priority-urgent);
 }
 
 @keyframes linear-select-in {

@@ -279,14 +279,20 @@ test('team lookups require a connection', function () {
 });
 
 test('team lookups return the connected workspace teams', function () {
-    fakeLinearApi(['Teams' => ['teams' => ['nodes' => [['id' => 'team-1', 'name' => 'Support', 'key' => 'SUP']]]]]);
+    fakeLinearApi(['Teams' => ['teams' => ['nodes' => [
+        ['id' => 'team-1', 'name' => 'Support', 'key' => 'SUP', 'color' => '#5e6ad2', 'icon' => '🛟'],
+        ['id' => 'team-2', 'name' => 'Tools', 'key' => 'TLS'],
+    ]]]]);
 
     LinearConnection::factory()->for($this->user, 'owner')->create();
 
     $this->actingAs($this->user)
         ->getJson(route('linear.api.teams'))
         ->assertOk()
-        ->assertExactJson(['teams' => [['id' => 'team-1', 'name' => 'Support', 'key' => 'SUP']]]);
+        ->assertExactJson(['teams' => [
+            ['id' => 'team-1', 'name' => 'Support', 'key' => 'SUP', 'color' => '#5e6ad2', 'icon' => '🛟'],
+            ['id' => 'team-2', 'name' => 'Tools', 'key' => 'TLS', 'color' => null, 'icon' => null],
+        ]]);
 });
 
 test('team options return the contract shape', function () {
@@ -299,11 +305,17 @@ test('team options return the contract shape', function () {
         ->assertOk()
         ->assertExactJson([
             'states' => [
-                ['id' => 'state-1', 'name' => 'Triage', 'type' => 'triage'],
-                ['id' => 'state-2', 'name' => 'Todo', 'type' => 'unstarted'],
+                ['id' => 'state-1', 'name' => 'Triage', 'type' => 'triage', 'color' => '#bec2c8'],
+                ['id' => 'state-2', 'name' => 'Todo', 'type' => 'unstarted', 'color' => '#e2e2e2'],
             ],
-            'projects' => [['id' => 'project-1', 'name' => 'Inbox']],
-            'members' => [['id' => 'user-1', 'name' => 'ada']],
+            'projects' => [['id' => 'project-1', 'name' => 'Inbox', 'color' => '#4cb782', 'icon' => '📥']],
+            'members' => [[
+                'id' => 'user-1',
+                'name' => 'ada',
+                'avatarUrl' => 'https://public.linear.app/ada.png',
+                'initials' => 'AL',
+                'avatarBackgroundColor' => '#5e6ad2',
+            ]],
             'labels' => [['id' => 'label-1', 'name' => 'Bug', 'color' => '#f00']],
         ]);
 });

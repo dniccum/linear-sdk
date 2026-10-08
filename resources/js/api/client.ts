@@ -7,6 +7,8 @@ import {
   isSavedDestinationResponse,
   isTeamOptions,
   isTeamsResponse,
+  withTeamOptionsDefaults,
+  withTeamsDefaults,
 } from '../schema';
 import type { Destination, DestinationPayload, Settings, Team, TeamOptions } from '../types';
 import { ApiError } from './errors';
@@ -136,7 +138,13 @@ export function createClient(
 
     return true;
   }
-  async function request<T>(method: HttpMethod, url: string, guard: Guard<T>, body?: unknown): Promise<T> {
+  async function request<T>(
+    method: HttpMethod,
+    url: string,
+    guard: Guard<T>,
+    body?: unknown,
+    normalize: (payload: unknown) => unknown = (payload) => payload,
+  ): Promise<T> {
     const headers: Record<string, string> = {
       Accept: 'application/json',
       'X-Requested-With': 'XMLHttpRequest',
@@ -156,10 +164,10 @@ export function createClient(
       throw new ApiError(NETWORK_ERROR_MESSAGE, { status: 0, cause });
     }
 
-    const payload = await readJson(response);
+    const raw = await readJson(response);
 
     if (!response.ok) {
-      const error = toApiError(response.status, payload);
+      const error = toApiError(response.status, raw);
 
       if (error.isUnauthenticated && signIn()) {
         throw new ApiError(SIGN_IN_REDIRECT_MESSAGE, { status: error.status });
@@ -167,6 +175,8 @@ export function createClient(
 
       throw error;
     }
+
+    const payload = normalize(raw);
 
     if (!guard(payload)) {
       throw new ApiError(UNEXPECTED_RESPONSE_MESSAGE, { status: response.status });
@@ -177,11 +187,11 @@ export function createClient(
 
   return {
     async getTeams() {
-      return (await request('GET', config.urls.teams, isTeamsResponse)).teams;
+      return (await request('GET', config.urls.teams, isTeamsResponse, undefined, withTeamsDefaults)).teams;
     },
 
     async getTeamOptions(teamId) {
-      return request('GET', fillUrl(config.urls.teamOptions, 'team', teamId), isTeamOptions);
+      return request('GET', fillUrl(config.urls.teamOptions, 'team', teamId), isTeamOptions, undefined, withTeamOptionsDefaults);
     },
 
     async saveDestination(payload) {

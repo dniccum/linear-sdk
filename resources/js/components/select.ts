@@ -14,6 +14,14 @@
  *   x-data="linearSelect($el, { id: 'x', value: () => draft.x, items: () => xItems, onSelect: (value) => pick(value) })"
  */
 import type { AlpineMagics } from '../types';
+import {
+  hideBrokenImage,
+  visualClasses,
+  visualMarkup,
+  visualStyle,
+  visualText,
+  type SelectVisual,
+} from '../ui/visuals';
 
 export type SelectValue = string | number;
 
@@ -21,6 +29,8 @@ export interface SelectItem {
   readonly value: SelectValue;
   readonly label: string;
   readonly disabled?: boolean;
+  /** A decorative leading visual (see `ui/visuals.ts`), shown in the list and in the trigger when selected. */
+  readonly visual?: SelectVisual;
 }
 
 export interface SelectConfig {
@@ -83,12 +93,22 @@ export interface SelectComponent {
   /** The value rendered into the hidden input. */
   readonly selectedValue: string;
   readonly label: string;
+  /** The selected item's visual, or `null` when it has none (or nothing is selected). */
+  readonly selectedVisual: SelectVisual | null;
   readonly isPlaceholder: boolean;
   readonly isDisabled: boolean;
   readonly isInvalid: boolean;
   readonly isBusy: boolean;
   readonly activeDescendant: string | null;
   readonly contentStyle: Record<string, string>;
+
+  /** Helpers the template calls to turn a `SelectVisual` into classes, style, markup and text. */
+  visualClasses: typeof visualClasses;
+  visualStyle: typeof visualStyle;
+  visualMarkup: typeof visualMarkup;
+  visualText: typeof visualText;
+  /** `error` handler for avatar images. */
+  onVisualError: typeof hideBrokenImage;
 
   optionId(index: number): string;
   isSelected(index: number): boolean;
@@ -116,6 +136,11 @@ export function linearSelect(host: HTMLElement, config: SelectConfig): SelectCom
     activeIndex: -1,
     placement: 'bottom',
     maxHeight: SELECT_MAX_HEIGHT,
+    visualClasses,
+    visualStyle,
+    visualMarkup,
+    visualText,
+    onVisualError: hideBrokenImage,
 
     get entries() {
       return config.items();
@@ -132,6 +157,10 @@ export function linearSelect(host: HTMLElement, config: SelectConfig): SelectCom
 
     get label() {
       return this.entries[this.selectedIndex]?.label ?? config.placeholder?.() ?? '';
+    },
+
+    get selectedVisual() {
+      return this.entries[this.selectedIndex]?.visual ?? null;
     },
 
     get isPlaceholder() {

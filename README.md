@@ -242,7 +242,7 @@ The three route groups (`ui`, `oauth`, `api`) are independent. To register no ro
 
 ## Building your own UI
 
-Everything the page does is available as headless, typed Actions, and as a documented HTTP contract ([docs/http-contract.md](docs/http-contract.md)).
+Everything the page does is available as headless, typed Actions, and as a documented HTTP contract ([docs/http-contract.md](docs/http-contract.md)). A reference for the data they return, with a worked custom page, is in [docs/custom-ui.md](docs/custom-ui.md).
 
 ```php
 use Dniccum\Linear\Actions\{BuildConnectUrl, HandleOAuthCallback, SaveApiKey, DisconnectLinear,
@@ -258,6 +258,31 @@ $settings = Linear::settingsFor($owner);   // typed DTO for rendering your own p
 ```
 
 Disable the package routes (`routes.* => false` or `Linear::ignoreRoutes()`) and wire the Actions into your own controllers, Inertia pages or Livewire components.
+
+### Team, project, status and member visuals
+
+The data the Actions return (and `$owner->linearClient()` / `Linear::client($owner)`) carries what Linear itself shows next to each choice, so a custom UI can look like Linear. All of it is optional (`null` when Linear sends nothing):
+
+| DTO | Visual properties |
+|---|---|
+| `Team` | `color` (hex), `icon` (an emoji or a Linear icon name, **never a URL**), `iconIsEmoji()` |
+| `Project` | `color`, `icon`, `iconIsEmoji()` |
+| `WorkflowState` | `color`, `type` (`triage`, `backlog`, `unstarted`, `started`, `completed`, `canceled`, `duplicate`), `kind()` returning a `LinearStateType` |
+| `Member` | `avatarUrl`, `initials`, `avatarBackgroundColor`, `displayInitials()` |
+
+Priorities have no API data, so `Dniccum\Linear\Enums\LinearPriority` lists them (`NoPriority`=0, `Urgent`=1, `High`=2, `Medium`=3, `Low`=4) with `label()` and `options()`. `toArray()` on each DTO matches the [HTTP contract](docs/http-contract.md#api-payloads) exactly.
+
+```php
+foreach (app(ListTeams::class)->execute($owner) as $team) {
+    echo $team->iconIsEmoji() ? $team->icon : strtoupper(substr($team->key, 0, 2));   // tile text
+    echo $team->color ?? '#5e6ad2';                                                    // tile colour
+}
+```
+
+[docs/custom-ui.md](docs/custom-ui.md) documents every field (type, nullability, meaning), how icons, colours and avatars should be rendered, what each status type means, and includes a complete custom controller and Blade view that works without the bundled UI.
+
+> [!IMPORTANT]
+> Avatars are loaded by the browser directly from the `avatarUrl` Linear returns (the package never proxies them). If your app sends a strict `Content-Security-Policy`, its `img-src` directive must allow the image hosts of your members' avatars, in the bundled page as well as in your own UI. When an image is blocked or fails to load, the bundled page falls back to the member's initials on their avatar colour, so nothing breaks; it simply looks plainer.
 
 ## Testing your application
 

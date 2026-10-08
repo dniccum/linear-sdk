@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Dniccum\Linear\Http\Requests;
 
 use Dniccum\Linear\Data\Destination;
+use Dniccum\Linear\Enums\LinearPriority;
 use Dniccum\Linear\Enums\LinearSendMode;
 use Dniccum\Linear\Support\Json;
 use Illuminate\Foundation\Http\FormRequest;
@@ -36,8 +37,7 @@ class SaveDestinationRequest extends FormRequest
             'stateId' => ['nullable', 'string', 'max:255'],
             'labelIds' => ['nullable', 'array', 'max:50'],
             'labelIds.*' => ['string', 'max:255'],
-            // Linear priorities: 0 none, 1 urgent, 2 high, 3 medium, 4 low.
-            'priority' => ['nullable', 'integer', 'between:0,4'],
+            'priority' => ['nullable', 'integer', Rule::enum(LinearPriority::class)],
             'assigneeId' => ['nullable', 'string', 'max:255'],
         ];
     }
