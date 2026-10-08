@@ -35,10 +35,13 @@ test('the label and the destination are configurable', function (string $url, st
     registerBackRoute('/home', 'home');
     config(['linear.back.label' => 'Return to the app', 'linear.back.url' => $url]);
 
+    // Relative expectations are resolved against whatever APP_URL the environment uses.
+    $expected = str_starts_with($expected, 'http') ? $expected : url($expected);
+
     expect(Linear::backFor($this->owner))->toEqual(new BackData('Return to the app', $expected));
 })->with([
-    'route name' => ['home', 'http://localhost:8000/home'],
-    'path' => ['/account', 'http://localhost:8000/account'],
+    'route name' => ['home', '/home'],
+    'path' => ['/account', '/account'],
     'url' => ['https://app.example.com/start', 'https://app.example.com/start'],
 ]);
 
