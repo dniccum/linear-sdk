@@ -11,6 +11,7 @@ import {
   isSettings,
   isTeamOptions,
   isTeamsResponse,
+  withSettingsDefaults,
 } from '../schema';
 import { makeConnection, makeDestination, makeFailure, makeOptions, makeSettings } from './fixtures';
 
@@ -44,6 +45,8 @@ describe('isSettings', () => {
     ['brand.logo is a number', (s) => (s['brand'] = { name: 'A', logo: 1, color: '#fff' })],
     ['csrf is missing', (s) => delete s['csrf']],
     ['urls lacks a key', (s) => (s['urls'] = { connect: '/x' })],
+    ['urls.login is missing', (s) => (s['urls'] = { ...makeSettings().urls, login: undefined })],
+    ['urls.login is not a string', (s) => (s['urls'] = { ...makeSettings().urls, login: null })],
     ['connection has a bad status', (s) => (s['connection'] = { ...makeConnection(), status: 'gone' })],
     ['connection is a string', (s) => (s['connection'] = 'active')],
     ['destination has a bad priority', (s) => (s['destination'] = { ...makeDestination(), priority: 5 })],
@@ -122,5 +125,32 @@ describe('error body guards', () => {
     expect(isFieldErrorsBody({ errors: { teamId: ['Required'] } })).toBe(true);
     expect(isFieldErrorsBody({ errors: { teamId: 'Required' } })).toBe(false);
     expect(isFieldErrorsBody({})).toBe(false);
+  });
+});
+
+describe('withSettingsDefaults', () => {
+  it('adds an empty urls.login when the server did not send one', () => {
+    const urls: Partial<ReturnType<typeof makeSettings>['urls']> = { ...makeSettings().urls };
+    delete urls.login;
+    const upgraded = withSettingsDefaults({ ...makeSettings(), urls });
+
+    expect(isSettings(upgraded)).toBe(true);
+    expect(isSettings({ ...makeSettings(), urls })).toBe(false);
+    expect(upgraded).toMatchObject({ urls: { login: '', teams: '/linear/api/teams' } });
+  });
+
+  it('leaves payloads that have a login URL (even an empty one) untouched', () => {
+    const settings = makeSettings();
+    const noLogin = makeSettings({ urls: { ...settings.urls, login: '' } });
+
+    expect(withSettingsDefaults(settings)).toBe(settings);
+    expect(withSettingsDefaults(noLogin)).toBe(noLogin);
+  });
+
+  it('leaves anything that is not a settings-like object for the guard to reject', () => {
+    expect(withSettingsDefaults(null)).toBeNull();
+    expect(withSettingsDefaults('x')).toBe('x');
+    expect(withSettingsDefaults({ urls: 'x' })).toEqual({ urls: 'x' });
+    expect(withSettingsDefaults({})).toEqual({});
   });
 });

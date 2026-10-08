@@ -561,3 +561,87 @@ describe('remove', () => {
     expect(events.map((event) => event.name)).toEqual(['linear-reconnect-required']);
   });
 });
+
+describe('select items', () => {
+  it('teamItems start with the placeholder as the empty choice, then every team with its key', () => {
+    const { form } = setup();
+    expect(form.teamItems).toEqual([{ value: '', label: 'Loading teams…' }]);
+
+    form.teamsState = 'ready';
+    form.teams = TEAMS;
+
+    expect(form.teamItems).toEqual([
+      { value: '', label: 'Select a team' },
+      { value: 'team-1', label: 'Support (SUP)' },
+      { value: 'team-2', label: 'Engineering (ENG)' },
+    ]);
+  });
+
+  it('priorityItems are numeric', () => {
+    const { form } = setup();
+
+    expect(form.priorityItems).toEqual([
+      { value: 0, label: 'No priority' },
+      { value: 1, label: 'Urgent' },
+      { value: 2, label: 'High' },
+      { value: 3, label: 'Medium' },
+      { value: 4, label: 'Low' },
+    ]);
+  });
+
+  it('project, state and assignee items keep an empty "none" choice before the loaded options', () => {
+    const { form } = setup();
+    expect(form.projectItems).toEqual([{ value: '', label: 'No project' }]);
+    expect(form.stateItems).toEqual([{ value: '', label: 'Team default' }]);
+    expect(form.assigneeItems).toEqual([{ value: '', label: 'Unassigned' }]);
+
+    form.options = makeOptions();
+
+    expect(form.projectItems.map((item) => [item.value, item.label])).toEqual([
+      ['', 'No project'],
+      ['project-1', 'Website'],
+      ['project-2', 'Mobile'],
+    ]);
+    expect(form.stateItems.map((item) => item.label)).toEqual(['Team default', 'Triage', 'Todo']);
+    expect(form.assigneeItems.map((item) => item.label)).toEqual(['Unassigned', 'Grace Hopper', 'Alan Turing']);
+  });
+});
+
+describe('select handlers', () => {
+  it('selectField stores the value as a string and clears only that field error', () => {
+    const { form } = setup();
+    form.errors = { projectId: ['bad'], stateId: ['bad'] };
+
+    form.selectField('projectId', 'project-2');
+    form.selectField('assigneeId', '');
+
+    expect(form.draft.projectId).toBe('project-2');
+    expect(form.draft.assigneeId).toBe('');
+    expect(form.errors).toEqual({ stateId: ['bad'] });
+  });
+
+  it('selectPriority stores a number and clears the priority error', () => {
+    const { form } = setup();
+    form.errors = { priority: ['bad'] };
+
+    form.selectPriority(3);
+
+    expect(form.draft.priority).toBe(3);
+    expect(form.errors).toEqual({});
+  });
+
+  it('selectTeam behaves like the old change handler: resets dependants and loads options', async () => {
+    const { form, client } = setup();
+    form.errors = { teamId: ['bad'] };
+
+    await form.selectTeam('team-2');
+
+    expect(form.draft).toMatchObject({ teamId: 'team-2', projectId: '', stateId: '', assigneeId: '', labelIds: [] });
+    expect(client.getTeamOptions).toHaveBeenCalledWith('team-2');
+    expect(form.errors).toEqual({});
+
+    await form.selectTeam('');
+
+    expect(form.optionsState).toBe('idle');
+  });
+});

@@ -21,10 +21,14 @@ import {
   type PriorityOption,
 } from './destination-draft';
 import { emit, focusRef, LINEAR_EVENTS, reportReconnect } from './events';
+import type { SelectItem, SelectValue } from './select';
 
 export const SAVED_MESSAGE = 'Destination saved.';
 export const REMOVED_MESSAGE = 'Destination settings removed.';
 export const FIELD_ERRORS_MESSAGE = 'Check the highlighted fields and try again.';
+
+/** The draft fields bound to a string-valued select (`''` means "none"). */
+export type SelectField = 'projectId' | 'stateId' | 'assigneeId';
 
 export interface DestinationFormDeps {
   /** The component's own `x-data` element; events are dispatched from it. */
@@ -59,11 +63,20 @@ export interface DestinationFormComponent {
 
   readonly teamPlaceholder: string;
   readonly canSave: boolean;
+  /** Items for the custom selects; the leading `''` item is the "none" choice. */
+  readonly teamItems: readonly SelectItem[];
+  readonly priorityItems: readonly SelectItem[];
+  readonly projectItems: readonly SelectItem[];
+  readonly stateItems: readonly SelectItem[];
+  readonly assigneeItems: readonly SelectItem[];
 
   init(): Promise<void>;
   loadTeams(): Promise<void>;
   loadOptions(): Promise<void>;
   onTeamChange(): Promise<void>;
+  selectTeam(value: SelectValue): Promise<void>;
+  selectField(field: SelectField, value: SelectValue): void;
+  selectPriority(value: SelectValue): void;
   hasLabel(id: string): boolean;
   toggleLabel(id: string): void;
   labelDotStyle(label: Label): Record<string, string>;
@@ -107,6 +120,29 @@ export function destinationForm({ host, destination, client }: DestinationFormDe
 
     get canSave(): boolean {
       return !this.saving && !this.removing && this.draft.teamId !== '' && this.optionsState !== 'loading';
+    },
+
+    get teamItems() {
+      return [
+        { value: '', label: this.teamPlaceholder },
+        ...this.teams.map((team) => ({ value: team.id, label: `${team.name} (${team.key})` })),
+      ];
+    },
+
+    get priorityItems() {
+      return this.priorities.map((priority) => ({ value: priority.value, label: priority.label }));
+    },
+
+    get projectItems() {
+      return [{ value: '', label: 'No project' }, ...this.options.projects.map((project) => ({ value: project.id, label: project.name }))];
+    },
+
+    get stateItems() {
+      return [{ value: '', label: 'Team default' }, ...this.options.states.map((state) => ({ value: state.id, label: state.name }))];
+    },
+
+    get assigneeItems() {
+      return [{ value: '', label: 'Unassigned' }, ...this.options.members.map((member) => ({ value: member.id, label: member.name }))];
     },
 
     async init() {
@@ -171,6 +207,21 @@ export function destinationForm({ host, destination, client }: DestinationFormDe
       }
 
       await this.loadOptions();
+    },
+
+    selectTeam(value) {
+      this.draft.teamId = String(value);
+      return this.onTeamChange();
+    },
+
+    selectField(field, value) {
+      this.draft[field] = String(value);
+      this.clearError(field);
+    },
+
+    selectPriority(value) {
+      this.draft.priority = Number(value);
+      this.clearError('priority');
     },
 
     hasLabel(id) {

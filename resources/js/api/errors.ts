@@ -27,6 +27,11 @@ export class ApiError extends Error {
     return this.status === 422;
   }
 
+  /** The user is signed out or the session / CSRF token expired (HTTP 401 or 419). */
+  get isUnauthenticated(): boolean {
+    return this.status === 401 || this.status === 419;
+  }
+
   /** The request never produced an HTTP response (offline, DNS, CORS, ...). */
   get isNetwork(): boolean {
     return this.status === 0;

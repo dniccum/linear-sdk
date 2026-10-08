@@ -3,9 +3,12 @@ import {
   createClient,
   fillUrl,
   NETWORK_ERROR_MESSAGE,
+  SESSION_EXPIRED_MESSAGE,
+  SIGN_IN_REDIRECT_MESSAGE,
   UNEXPECTED_RESPONSE_MESSAGE,
   type ClientConfig,
   type FetchLike,
+  type Redirect,
 } from '../../api/client';
 import { ApiError } from '../../api/errors';
 import type { DestinationPayload } from '../../types';
@@ -18,6 +21,7 @@ const config: ClientConfig = {
     teamOptions: '/linear/api/teams/{team}/options',
     destination: '/linear/api/destination',
     retry: '/linear/api/issues/{link}/retry',
+    login: '/login',
   },
 };
 
@@ -230,10 +234,8 @@ describe('error narrowing', () => {
   });
 
   it.each([
-    [401, /not signed in/],
     [403, /permission/],
     [404, /could not be found/],
-    [419, /session expired/],
     [429, /Too many requests/],
     [503, /unavailable/],
     [500, /server hit an error/],
@@ -293,5 +295,116 @@ describe('error narrowing', () => {
     const { client } = clientWith(async () => jsonResponse({ ok: false }));
 
     expect((await rejection(client.retryIssue('1'))).message).toBe(UNEXPECTED_RESPONSE_MESSAGE);
+  });
+});
+
+describe('signed-out and expired sessions', () => {
+  function clientWithRedirect(status: number, login = '/login', body: unknown = { message: 'Unauthenticated.' }) {
+    const redirect = vi.fn<Redirect>();
+    const fetchMock = vi.fn<FetchLike>(async () => jsonResponse(body, status));
+    const client = createClient({ ...config, urls: { ...config.urls, login } }, fetchMock, redirect);
+    return { client, redirect, fetchMock };
+  }
+
+  it.each([401, 419])('redirects to the login URL on HTTP %i instead of showing the server message', async (status) => {
+    const { client, redirect } = clientWithRedirect(status);
+
+    const error = await rejection(client.getTeams());
+
+    expect(redirect).toHaveBeenCalledExactlyOnceWith('/login');
+    expect(error.status).toBe(status);
+    expect(error.isUnauthenticated).toBe(true);
+    expect(error.message).toBe(SIGN_IN_REDIRECT_MESSAGE);
+  });
+
+  it('redirects from every endpoint', async () => {
+    for (const call of [
+      (client: ReturnType<typeof createClient>) => client.getTeamOptions('t'),
+      (client: ReturnType<typeof createClient>) => client.saveDestination(payload),
+      (client: ReturnType<typeof createClient>) => client.deleteDestination(),
+      (client: ReturnType<typeof createClient>) => client.retryIssue('l'),
+    ]) {
+      const { client, redirect } = clientWithRedirect(401);
+
+      await rejection(call(client));
+
+      expect(redirect).toHaveBeenCalledExactlyOnceWith('/login');
+    }
+  });
+
+  it('redirects only once even when several requests fail together', async () => {
+    const { client, redirect } = clientWithRedirect(401);
+
+    const errors = await Promise.all([
+      rejection(client.getTeams()),
+      rejection(client.getTeamOptions('team-1')),
+      rejection(client.retryIssue('link-1')),
+    ]);
+    const later = await rejection(client.getTeams());
+
+    expect(redirect).toHaveBeenCalledTimes(1);
+    expect([...errors, later].map((error) => error.message)).toEqual(Array(4).fill(SIGN_IN_REDIRECT_MESSAGE));
+  });
+
+  it('shows a clear message instead when no login URL is configured', async () => {
+    const { client, redirect } = clientWithRedirect(401, '');
+
+    const error = await rejection(client.getTeams());
+
+    expect(redirect).not.toHaveBeenCalled();
+    expect(error.message).toBe(SESSION_EXPIRED_MESSAGE);
+    expect(SESSION_EXPIRED_MESSAGE).toBe('Your session has expired. Please sign in again.');
+  });
+
+  it('uses the same message for an empty 419 body', async () => {
+    const fetchMock = vi.fn<FetchLike>(async () => new Response('', { status: 419 }));
+    const client = createClient({ ...config, urls: { ...config.urls, login: '' } }, fetchMock, vi.fn());
+
+    expect((await rejection(client.getTeams())).message).toBe(SESSION_EXPIRED_MESSAGE);
+  });
+
+  it('falls back to the message, and tries again next time, when the redirect itself fails', async () => {
+    const redirect = vi
+      .fn<Redirect>()
+      .mockImplementationOnce(() => {
+        throw new Error('blocked');
+      })
+      .mockImplementation(() => undefined);
+    const client = createClient(config, vi.fn<FetchLike>(async () => jsonResponse({}, 419)), redirect);
+
+    expect((await rejection(client.getTeams())).message).toBe(SESSION_EXPIRED_MESSAGE);
+    expect((await rejection(client.getTeams())).message).toBe(SIGN_IN_REDIRECT_MESSAGE);
+    expect(redirect).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([403, 404, 409, 422, 429, 500, 503])('does not redirect on HTTP %i', async (status) => {
+    const { client, redirect } = clientWithRedirect(status, '/login', { message: 'Nope.' });
+
+    const error = await rejection(client.getTeams());
+
+    expect(redirect).not.toHaveBeenCalled();
+    expect(error.isUnauthenticated).toBe(false);
+    expect(error.message).toBe('Nope.');
+  });
+
+  it('does not redirect on network failures or successes', async () => {
+    const redirect = vi.fn<Redirect>();
+    const failing = createClient(config, async () => { throw new TypeError('offline'); }, redirect);
+    const working = createClient(config, async () => jsonResponse({ teams: [] }), redirect);
+
+    await rejection(failing.getTeams());
+    await working.getTeams();
+
+    expect(redirect).not.toHaveBeenCalled();
+  });
+
+  it('navigates with location.assign by default', async () => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', { assign });
+    const client = createClient(config, async () => jsonResponse({}, 401));
+
+    await rejection(client.getTeams());
+
+    expect(assign).toHaveBeenCalledExactlyOnceWith('/login');
   });
 });

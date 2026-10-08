@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { COMPONENT_NAMES } from '../../components';
 import { LINEAR_EVENTS } from '../../components/events';
-import { renderApp, renderFatalError } from '../../ui/template';
+import { renderApp, renderFatalError, selectTemplate, type SelectSpec } from '../../ui/template';
 
 /**
  * Parses the markup and unwraps every `<template>` (recursively), so controls
@@ -82,7 +82,7 @@ describe('renderApp', () => {
     const app = parseApp();
     const known = ids(app);
 
-    for (const control of app.querySelectorAll('input:not([type="hidden"]), select')) {
+    for (const control of app.querySelectorAll('input:not([type="hidden"]), [role="combobox"]')) {
       const labelled =
         control.closest('label') !== null ||
         [...app.querySelectorAll('label[for]')].some((label) => label.getAttribute('for') === control.id);
@@ -149,5 +149,87 @@ describe('renderFatalError', () => {
 
     expect(container.querySelector('img')).toBeNull();
     expect(container.querySelector('.linear-fatal__detail')?.textContent).toBe('<img src=x onerror=alert(1)>');
+  });
+});
+
+describe('selectTemplate', () => {
+  const SPEC: SelectSpec = {
+    id: 'linear-x',
+    name: 'xId',
+    value: 'draft.xId',
+    items: 'xItems',
+    onSelect: "pick('xId', value)",
+  };
+
+  function render(spec: SelectSpec): HTMLElement {
+    const container = document.createElement('div');
+    container.innerHTML = selectTemplate(spec);
+    return container;
+  }
+
+  it('renders a combobox button wired to a listbox and a hidden input', () => {
+    const select = render(SPEC);
+    const trigger = select.querySelector('button.linear-select__trigger');
+    const listbox = select.querySelector('[role="listbox"]');
+
+    expect(trigger?.getAttribute('type')).toBe('button');
+    expect(trigger?.getAttribute('id')).toBe('linear-x');
+    expect(trigger?.getAttribute('role')).toBe('combobox');
+    expect(trigger?.getAttribute('aria-haspopup')).toBe('listbox');
+    expect(trigger?.getAttribute('aria-controls')).toBe('linear-x-listbox');
+    expect(trigger?.getAttribute('aria-labelledby')).toBe('linear-x-label');
+    expect(listbox?.getAttribute('id')).toBe('linear-x-listbox');
+    expect(listbox?.getAttribute('aria-labelledby')).toBe('linear-x-label');
+    expect(select.querySelector('input[type="hidden"]')?.getAttribute('name')).toBe('xId');
+    expect(select.querySelector('.linear-select__chevron path')?.getAttribute('d')).toBe('m6 9 6 6 6-6');
+    expect(select.querySelector('template')?.content.querySelector('.linear-select__check path')?.getAttribute('d')).toBe('M20 6 9 17l-5-5');
+  });
+
+  it('builds the component configuration from the spec', () => {
+    const xData = render(SPEC).querySelector('[x-data]')?.getAttribute('x-data');
+
+    expect(xData).toBe(
+      "linearSelect($el, { id: 'linear-x', value: () => draft.xId, items: () => xItems, onSelect: (value) => pick('xId', value) })",
+    );
+  });
+
+  it('adds the optional bindings and attributes only when given', () => {
+    const plain = render(SPEC);
+    expect(plain.querySelector('[aria-describedby]')).toBeNull();
+    expect(plain.querySelector('[data-linear-ref]')).toBeNull();
+
+    const full = render({
+      ...SPEC,
+      placeholder: 'ph',
+      disabled: 'off',
+      invalid: 'bad',
+      busy: 'wait',
+      describedBy: 'linear-x-error',
+      ref: 'x',
+    });
+    const trigger = full.querySelector('button');
+
+    expect(full.querySelector('[x-data]')?.getAttribute('x-data')).toContain(
+      "placeholder: () => ph, disabled: () => off, invalid: () => bad, busy: () => wait",
+    );
+    expect(trigger?.getAttribute('aria-describedby')).toBe('linear-x-error');
+    expect(trigger?.getAttribute('data-linear-ref')).toBe('x');
+  });
+
+  it('is used for all five destination fields instead of native selects', () => {
+    const app = parseApp();
+
+    expect(app.querySelectorAll('select')).toHaveLength(0);
+    expect([...app.querySelectorAll('[role="combobox"]')].map((trigger) => trigger.id)).toEqual([
+      'linear-team',
+      'linear-priority',
+      'linear-project',
+      'linear-state',
+      'linear-assignee',
+    ]);
+    expect(app.querySelector('#linear-team')?.getAttribute('data-linear-ref')).toBe('team');
+    for (const id of ['team', 'priority', 'project', 'state', 'assignee']) {
+      expect(app.querySelector(`label#linear-${id}-label[for="linear-${id}"]`)).not.toBeNull();
+    }
   });
 });

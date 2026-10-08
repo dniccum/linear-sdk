@@ -106,9 +106,42 @@ function text(app: App, selector: string): string {
   return (el(app, selector).textContent ?? '').replace(/\s+/g, ' ').trim();
 }
 
-function choose(select: HTMLSelectElement, value: string): void {
-  select.value = value;
-  select.dispatchEvent(new Event('change', { bubbles: true }));
+function trigger(app: App, id: string): HTMLButtonElement {
+  return el<HTMLButtonElement>(app, `button#${id}`);
+}
+
+/** The text a select's trigger currently shows. */
+function shown(app: App, id: string): string {
+  return text(app, `button#${id} .linear-select__value`);
+}
+
+/** The value a select submits (its hidden input). */
+function submitted(app: App, name: string): string {
+  return el<HTMLInputElement>(app, `input[type="hidden"][name="${name}"]`).value;
+}
+
+function optionLabels(app: App, id: string): string[] {
+  return [...el(app, `#${id}-listbox`).querySelectorAll('.linear-select__item-label')].map((label) => label.textContent ?? '');
+}
+
+/** Opens a select with a click and chooses the option with `label`, the way a user would. */
+async function pick(app: App, id: string, label: string): Promise<void> {
+  trigger(app, id).click();
+  await vi.waitFor(() => {
+    expect(trigger(app, id).getAttribute('aria-expanded')).toBe('true');
+  });
+
+  const option = [...el(app, `#${id}-listbox`).querySelectorAll<HTMLElement>('[role="option"]')].find(
+    (candidate) => candidate.textContent.trim() === label,
+  );
+  if (option === undefined) {
+    throw new Error(`No option "${label}" in #${id}`);
+  }
+  option.click();
+
+  await vi.waitFor(() => {
+    expect(trigger(app, id).getAttribute('aria-expanded')).toBe('false');
+  });
 }
 
 function submit(form: HTMLFormElement): Event {
@@ -298,11 +331,20 @@ describe('destination form', () => {
       'GET /linear/api/teams',
       'GET /linear/api/teams/team-1/options',
     ]);
-    expect(el<HTMLSelectElement>(app, '#linear-team').value).toBe('team-1');
-    expect(el<HTMLSelectElement>(app, '#linear-project').value).toBe('project-1');
-    expect(el<HTMLSelectElement>(app, '#linear-state').value).toBe('state-1');
-    expect(el<HTMLSelectElement>(app, '#linear-assignee').value).toBe('member-1');
-    expect(el<HTMLSelectElement>(app, '#linear-priority').value).toBe('2');
+    expect(['linear-team', 'linear-project', 'linear-state', 'linear-assignee', 'linear-priority'].map((id) => shown(app, id))).toEqual([
+      'Support (SUP)',
+      'Website',
+      'Triage',
+      'Grace Hopper',
+      'High',
+    ]);
+    expect(['teamId', 'projectId', 'stateId', 'assigneeId', 'priority'].map((name) => submitted(app, name))).toEqual([
+      'team-1',
+      'project-1',
+      'state-1',
+      'member-1',
+      '2',
+    ]);
     expect(el<HTMLInputElement>(app, 'input[name="sendMode"][value="automatic"]').checked).toBe(true);
 
     const labels = [...app.container.querySelectorAll<HTMLInputElement>('.linear-chip__input')];
@@ -317,23 +359,14 @@ describe('destination form', () => {
     const app = await boot(makeSettings({ failures: [] }));
     await settled(app);
 
-    const options = [...el<HTMLSelectElement>(app, '#linear-priority').options].map((option) => [option.value, option.text]);
-
-    expect(options).toEqual([
-      ['0', 'No priority'],
-      ['1', 'Urgent'],
-      ['2', 'High'],
-      ['3', 'Medium'],
-      ['4', 'Low'],
-    ]);
+    expect(optionLabels(app, 'linear-priority')).toEqual(['No priority', 'Urgent', 'High', 'Medium', 'Low']);
   });
 
   it('shows team names with their keys and colour dots for labels', async () => {
     const app = await boot(makeSettings({ failures: [] }));
     await settled(app);
 
-    const teams = [...el<HTMLSelectElement>(app, '#linear-team').options].map((option) => option.text);
-    expect(teams).toEqual(['Select a team', 'Support (SUP)', 'Engineering (ENG)']);
+    expect(optionLabels(app, 'linear-team')).toEqual(['Select a team', 'Support (SUP)', 'Engineering (ENG)']);
 
     const dots = [...app.container.querySelectorAll<HTMLElement>('.linear-chip__dot')];
     expect(dots[0]?.style.getPropertyValue('--linear-dot')).toBe('#eb5757');
@@ -401,13 +434,13 @@ describe('destination form', () => {
     await vi.waitFor(() => {
       expect(text(app, '.linear-inline-error')).toContain('Teams are unavailable.');
     });
-    expect(el<HTMLSelectElement>(app, '#linear-team').disabled).toBe(true);
-    expect(el<HTMLSelectElement>(app, '#linear-team').options[0]?.text).toBe('Teams unavailable');
+    expect(trigger(app, 'linear-team').disabled).toBe(true);
+    expect(shown(app, 'linear-team')).toBe('Teams unavailable');
 
     el<HTMLButtonElement>(app, '.linear-inline-error button').click();
 
     await vi.waitFor(() => {
-      expect(el<HTMLSelectElement>(app, '#linear-team').disabled).toBe(false);
+      expect(trigger(app, 'linear-team').disabled).toBe(false);
     });
     expect(app.container.querySelector('.linear-inline-error')).toBeNull();
   });
@@ -416,25 +449,29 @@ describe('destination form', () => {
     const app = await boot(makeSettings({ failures: [] }));
     await settled(app);
 
-    choose(el<HTMLSelectElement>(app, '#linear-team'), 'team-2');
+    await pick(app, 'linear-team', 'Engineering (ENG)');
 
     await vi.waitFor(() => {
       expect(app.requests().map((request) => request.url)).toContain('/linear/api/teams/team-2/options');
     });
     await settled(app);
-    expect(el<HTMLSelectElement>(app, '#linear-project').value).toBe('');
-    expect(el<HTMLSelectElement>(app, '#linear-state').value).toBe('');
-    expect(el<HTMLSelectElement>(app, '#linear-assignee').value).toBe('');
-    expect(el<HTMLSelectElement>(app, '#linear-priority').value).toBe('2');
+    expect(shown(app, 'linear-team')).toBe('Engineering (ENG)');
+    expect([shown(app, 'linear-project'), shown(app, 'linear-state'), shown(app, 'linear-assignee')]).toEqual([
+      'No project',
+      'Team default',
+      'Unassigned',
+    ]);
+    expect(['projectId', 'stateId', 'assigneeId'].map((name) => submitted(app, name))).toEqual(['', '', '']);
+    expect(shown(app, 'linear-priority')).toBe('High');
     expect([...app.container.querySelectorAll<HTMLInputElement>('.linear-chip__input')].some((input) => input.checked)).toBe(false);
-    expect([...el<HTMLSelectElement>(app, '#linear-project').options].map((option) => option.value)).toEqual(['', 'project-team-2', 'project-1']);
+    expect(optionLabels(app, 'linear-project')).toEqual(['No project', 'Project team-2', 'Website']);
   });
 
   it('returns to the idle hint when the team is cleared', async () => {
     const app = await boot(makeSettings({ failures: [] }));
     await settled(app);
 
-    choose(el<HTMLSelectElement>(app, '#linear-team'), '');
+    await pick(app, 'linear-team', 'Select a team');
 
     await vi.waitFor(() => {
       expect(app.container.querySelector('#linear-project')).toBeNull();
@@ -447,10 +484,10 @@ describe('destination form', () => {
     const app = await boot(makeSettings({ failures: [] }));
     await settled(app);
 
-    choose(el<HTMLSelectElement>(app, '#linear-priority'), '3');
+    await pick(app, 'linear-priority', 'Medium');
     el<HTMLInputElement>(app, 'input[name="sendMode"][value="manual"]').click();
     el<HTMLInputElement>(app, '.linear-chip__input[value="label-2"]').click();
-    choose(el<HTMLSelectElement>(app, '#linear-assignee'), '');
+    await pick(app, 'linear-assignee', 'Unassigned');
     submit(el<HTMLFormElement>(app, 'form.linear-form[aria-labelledby="linear-destination-title"]'));
 
     await vi.waitFor(() => {
@@ -500,7 +537,7 @@ describe('destination form', () => {
     expect(app.container.querySelector('.linear-flash--status')).toBeNull();
 
     // Editing a field clears its own error only.
-    choose(el<HTMLSelectElement>(app, '#linear-priority'), '1');
+    await pick(app, 'linear-priority', 'Urgent');
     await vi.waitFor(() => {
       expect(visible(el(app, '#linear-priority-error'))).toBe(false);
     });
@@ -540,7 +577,8 @@ describe('destination form', () => {
     await vi.waitFor(() => {
       expect(text(app, '.linear-flash--status')).toBe('Destination settings removed. ×');
     });
-    expect(el<HTMLSelectElement>(app, '#linear-team').value).toBe('');
+    expect(submitted(app, 'teamId')).toBe('');
+    expect(shown(app, 'linear-team')).toBe('Select a team');
     expect(app.container.querySelector('[data-linear-ref="remove"]')).toBeNull();
     expect(text(app, '#linear-destination-title + p')).toBe('Choose the Linear team and defaults for new issues.');
     expect(text(app, '.linear-options .linear-hint')).toContain('Select a team');
@@ -675,6 +713,41 @@ describe('failures', () => {
     expect(items(app)).toEqual(['Checkout is broken', 'Re: refund']);
   });
 
+  it('sends the browser to the login page when the session has expired, and restores the failure', async () => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', { assign });
+    const app = await boot(makeSettings({ destination: null, failures }), (url, init) =>
+      url.endsWith('/L2/retry') ? jsonResponse({ message: 'Unauthenticated.' }, 401) : happyBackend(url, init),
+    );
+
+    el<HTMLButtonElement>(app, '.linear-failure:nth-of-type(2) button').click();
+
+    await vi.waitFor(() => {
+      expect(assign).toHaveBeenCalledExactlyOnceWith('/login');
+    });
+    await vi.waitFor(() => {
+      expect(text(app, '.linear-failure:nth-of-type(2) .linear-field__error')).toBe('Your session has expired. Redirecting to sign in…');
+    });
+    expect(items(app)).toEqual(['Checkout is broken', 'Re: refund']);
+  });
+
+  it('explains an expired session when there is no login page to go to', async () => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', { assign });
+    const settings = makeSettings({ destination: null, failures });
+    const app = await boot({ ...settings, urls: { ...settings.urls, login: '' } }, (url, init) =>
+      url.endsWith('/L2/retry') ? jsonResponse({}, 419) : happyBackend(url, init),
+    );
+
+    el<HTMLButtonElement>(app, '.linear-failure:nth-of-type(2) button').click();
+
+    await vi.waitFor(() => {
+      expect(text(app, '.linear-failure:nth-of-type(2) .linear-field__error')).toBe('Your session has expired. Please sign in again.');
+    });
+    expect(assign).not.toHaveBeenCalled();
+    expect(items(app)).toEqual(['Checkout is broken', 'Re: refund']);
+  });
+
   it('clears the error and removes the item when a second attempt succeeds', async () => {
     let attempts = 0;
     const app = await boot(makeSettings({ destination: null, failures: [makeFailure({ id: 'f1', linkId: 'L1' })] }), (url, init) =>
@@ -739,12 +812,367 @@ describe('flash banners', () => {
   });
 });
 
+describe('custom select', () => {
+  function key(app: App, id: string, name: string, init: KeyboardEventInit = {}): KeyboardEvent {
+    const event = new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true, ...init });
+    trigger(app, id).dispatchEvent(event);
+    return event;
+  }
+
+  function popup(app: App, id: string): HTMLElement {
+    return el(app, `#${id}-listbox`);
+  }
+
+  function isOpen(app: App, id: string): boolean {
+    return visible(popup(app, id));
+  }
+
+  async function opened(app: App, id: string): Promise<void> {
+    await vi.waitFor(() => {
+      expect(trigger(app, id).getAttribute('aria-expanded')).toBe('true');
+      expect(isOpen(app, id)).toBe(true);
+    });
+  }
+
+  async function closed(app: App, id: string): Promise<void> {
+    await vi.waitFor(() => {
+      expect(trigger(app, id).getAttribute('aria-expanded')).toBe('false');
+      expect(isOpen(app, id)).toBe(false);
+    });
+  }
+
+  function activeLabel(app: App): string {
+    return text(app, '.linear-select__item--active .linear-select__item-label');
+  }
+
+  async function ready(settings: Settings = makeSettings({ failures: [] })): Promise<App> {
+    const app = await boot(settings);
+    await settled(app);
+    return app;
+  }
+
+  it('wires the combobox, listbox and options with the ARIA select-only pattern', async () => {
+    const app = await ready();
+    const field = trigger(app, 'linear-project');
+
+    expect(field.getAttribute('type')).toBe('button');
+    expect(field.getAttribute('role')).toBe('combobox');
+    expect(field.getAttribute('aria-haspopup')).toBe('listbox');
+    expect(field.getAttribute('aria-controls')).toBe('linear-project-listbox');
+    expect(field.getAttribute('aria-labelledby')).toBe('linear-project-label');
+    expect(field.getAttribute('aria-describedby')).toBe('linear-project-error');
+    expect(field.getAttribute('aria-expanded')).toBe('false');
+    expect(field.hasAttribute('aria-activedescendant')).toBe(false);
+    expect(popup(app, 'linear-project').getAttribute('role')).toBe('listbox');
+    expect(isOpen(app, 'linear-project')).toBe(false);
+
+    const options = [...popup(app, 'linear-project').querySelectorAll<HTMLElement>('[role="option"]')];
+    expect(options.map((option) => option.id)).toEqual([
+      'linear-project-option-0',
+      'linear-project-option-1',
+      'linear-project-option-2',
+    ]);
+    expect(options.map((option) => option.getAttribute('aria-selected'))).toEqual(['false', 'false', 'true']);
+    expect(options.map((option) => visible(option.querySelector('.linear-select__check')))).toEqual([false, false, true]);
+  });
+
+  it('opens on click and marks the selected option as the active descendant', async () => {
+    const app = await ready();
+
+    trigger(app, 'linear-state').click();
+    await opened(app, 'linear-state');
+
+    expect(trigger(app, 'linear-state').getAttribute('aria-activedescendant')).toBe('linear-state-option-1');
+    expect(activeLabel(app)).toBe('Triage');
+    expect(document.activeElement).toBe(trigger(app, 'linear-state'));
+
+    trigger(app, 'linear-state').click();
+    await closed(app, 'linear-state');
+    expect(trigger(app, 'linear-state').hasAttribute('aria-activedescendant')).toBe(false);
+  });
+
+  it('chooses an option with a click: closes, refocuses, updates the value and the hidden input', async () => {
+    const app = await ready();
+
+    await pick(app, 'linear-state', 'Todo');
+
+    expect(shown(app, 'linear-state')).toBe('Todo');
+    expect(submitted(app, 'stateId')).toBe('state-2');
+    expect(document.activeElement).toBe(trigger(app, 'linear-state'));
+    await vi.waitFor(() => {
+      expect(popup(app, 'linear-state').querySelector('[aria-selected="true"]')?.textContent.trim()).toBe('Todo');
+    });
+  });
+
+  it('chooses the empty option to clear a value, like the old "No project" row', async () => {
+    const app = await ready();
+
+    await pick(app, 'linear-project', 'No project');
+
+    expect(submitted(app, 'projectId')).toBe('');
+    expect(el(app, '#linear-project .linear-select__value').classList.contains('linear-select__value--placeholder')).toBe(true);
+  });
+
+  it('does nothing when the current option is chosen again', async () => {
+    const app = await ready();
+    const before = app.requests().length;
+
+    await pick(app, 'linear-team', 'Support (SUP)');
+
+    expect(app.requests()).toHaveLength(before);
+    expect(shown(app, 'linear-project')).toBe('Website');
+  });
+
+  it('supports the keyboard: open, move, Home/End, select', async () => {
+    const app = await ready();
+
+    expect(key(app, 'linear-priority', 'ArrowDown').defaultPrevented).toBe(true);
+    await opened(app, 'linear-priority');
+    expect(activeLabel(app)).toBe('High');
+
+    key(app, 'linear-priority', 'ArrowDown');
+    await vi.waitFor(() => {
+      expect(activeLabel(app)).toBe('Medium');
+    });
+    expect(trigger(app, 'linear-priority').getAttribute('aria-activedescendant')).toBe('linear-priority-option-3');
+    key(app, 'linear-priority', 'End');
+    await vi.waitFor(() => {
+      expect(activeLabel(app)).toBe('Low');
+    });
+    key(app, 'linear-priority', 'Home');
+    await vi.waitFor(() => {
+      expect(activeLabel(app)).toBe('No priority');
+    });
+    key(app, 'linear-priority', 'ArrowDown');
+    key(app, 'linear-priority', 'Enter');
+    await closed(app, 'linear-priority');
+
+    expect(shown(app, 'linear-priority')).toBe('Urgent');
+    expect(submitted(app, 'priority')).toBe('1');
+    expect(document.activeElement).toBe(trigger(app, 'linear-priority'));
+  });
+
+  it('selects with Space, and opens with Enter or ArrowUp', async () => {
+    const app = await ready();
+
+    key(app, 'linear-assignee', 'Enter');
+    await opened(app, 'linear-assignee');
+    key(app, 'linear-assignee', 'ArrowDown');
+    key(app, 'linear-assignee', ' ');
+    await closed(app, 'linear-assignee');
+    expect(shown(app, 'linear-assignee')).toBe('Alan Turing');
+
+    key(app, 'linear-assignee', 'ArrowUp');
+    await opened(app, 'linear-assignee');
+  });
+
+  it('supports typeahead', async () => {
+    const app = await ready();
+
+    key(app, 'linear-project', 'Enter');
+    await opened(app, 'linear-project');
+    key(app, 'linear-project', 'p');
+    await vi.waitFor(() => {
+      expect(activeLabel(app)).toBe('Project team-1');
+    });
+    key(app, 'linear-project', 'Enter');
+    await closed(app, 'linear-project');
+
+    expect(shown(app, 'linear-project')).toBe('Project team-1');
+  });
+
+  it('closes with Escape (refocusing the trigger) and with Tab, selecting nothing', async () => {
+    const app = await ready();
+
+    key(app, 'linear-state', 'Enter');
+    await opened(app, 'linear-state');
+    key(app, 'linear-state', 'ArrowDown');
+    key(app, 'linear-state', 'Escape');
+    await closed(app, 'linear-state');
+    expect(shown(app, 'linear-state')).toBe('Triage');
+    expect(document.activeElement).toBe(trigger(app, 'linear-state'));
+
+    key(app, 'linear-state', 'Enter');
+    await opened(app, 'linear-state');
+    key(app, 'linear-state', 'ArrowDown');
+    key(app, 'linear-state', 'Tab');
+    await closed(app, 'linear-state');
+    expect(shown(app, 'linear-state')).toBe('Triage');
+  });
+
+  it('follows the pointer and closes on a click outside', async () => {
+    const app = await ready();
+    trigger(app, 'linear-state').click();
+    await opened(app, 'linear-state');
+
+    popup(app, 'linear-state').querySelectorAll<HTMLElement>('[role="option"]')[2]?.dispatchEvent(new Event('pointermove', { bubbles: true }));
+    await vi.waitFor(() => {
+      expect(activeLabel(app)).toBe('Todo');
+    });
+
+    document.body.click();
+    await closed(app, 'linear-state');
+    expect(shown(app, 'linear-state')).toBe('Triage');
+  });
+
+  it('does not close when the click lands inside the popup padding', async () => {
+    const app = await ready();
+    trigger(app, 'linear-state').click();
+    await opened(app, 'linear-state');
+
+    popup(app, 'linear-state').click();
+
+    expect(isOpen(app, 'linear-state')).toBe(true);
+  });
+
+  it('keeps only one select open at a time', async () => {
+    const app = await ready();
+
+    trigger(app, 'linear-state').click();
+    await opened(app, 'linear-state');
+    trigger(app, 'linear-priority').click();
+    await opened(app, 'linear-priority');
+    await closed(app, 'linear-state');
+
+    key(app, 'linear-project', 'Enter');
+    await opened(app, 'linear-project');
+    await closed(app, 'linear-priority');
+  });
+
+  it('closes when the window is resized', async () => {
+    const app = await ready();
+    trigger(app, 'linear-state').click();
+    await opened(app, 'linear-state');
+
+    window.dispatchEvent(new Event('resize'));
+
+    await closed(app, 'linear-state');
+  });
+
+  it('opens from its label', async () => {
+    const app = await ready();
+
+    el<HTMLLabelElement>(app, 'label[for="linear-assignee"]').click();
+
+    await opened(app, 'linear-assignee');
+    expect(document.activeElement).toBe(trigger(app, 'linear-assignee'));
+  });
+
+  it('flips above the trigger when there is more room there', async () => {
+    const app = await ready();
+    vi.stubGlobal('innerHeight', 300);
+    vi.spyOn(trigger(app, 'linear-priority'), 'getBoundingClientRect').mockReturnValue({
+      top: 200, bottom: 242, left: 0, right: 100, width: 100, height: 42, x: 0, y: 200, toJSON: () => ({}),
+    });
+    Object.defineProperty(popup(app, 'linear-priority'), 'scrollHeight', { value: 300, configurable: true });
+
+    trigger(app, 'linear-priority').click();
+    await opened(app, 'linear-priority');
+
+    await vi.waitFor(() => {
+      expect(popup(app, 'linear-priority').getAttribute('data-side')).toBe('top');
+    });
+    expect(popup(app, 'linear-priority').style.getPropertyValue('max-height')).toBe('188px');
+  });
+
+  it('opens below by default', async () => {
+    const app = await ready();
+
+    trigger(app, 'linear-priority').click();
+    await opened(app, 'linear-priority');
+
+    expect(popup(app, 'linear-priority').getAttribute('data-side')).toBe('bottom');
+  });
+
+  it('is disabled and busy while teams load, then enabled', async () => {
+    const teams = deferred<Response>();
+    const app = await boot(makeSettings({ failures: [], destination: null }), (url, init) =>
+      url === '/linear/api/teams' ? teams.promise : happyBackend(url, init),
+    );
+
+    await vi.waitFor(() => {
+      expect(trigger(app, 'linear-team').disabled).toBe(true);
+    });
+    expect(trigger(app, 'linear-team').getAttribute('aria-busy')).toBe('true');
+    expect(shown(app, 'linear-team')).toBe('Loading teams…');
+    expect(el(app, '#linear-team .linear-select__value').classList.contains('linear-select__value--placeholder')).toBe(true);
+    trigger(app, 'linear-team').click();
+    key(app, 'linear-team', 'ArrowDown');
+    expect(isOpen(app, 'linear-team')).toBe(false);
+
+    teams.resolve(jsonResponse({ teams: TEAMS }));
+
+    await vi.waitFor(() => {
+      expect(trigger(app, 'linear-team').disabled).toBe(false);
+    });
+    expect(trigger(app, 'linear-team').hasAttribute('aria-busy')).toBe(false);
+    expect(shown(app, 'linear-team')).toBe('Select a team');
+  });
+
+  it('marks a field with a validation error as invalid and clears it on change', async () => {
+    const app = await boot(makeSettings({ failures: [] }), (url, init) =>
+      init.method === 'PUT'
+        ? jsonResponse({ message: 'Invalid.', errors: { project_id: ['Pick another project.'], priority: ['Bad priority.'] } }, 422)
+        : happyBackend(url, init),
+    );
+    await settled(app);
+
+    submit(el<HTMLFormElement>(app, 'form.linear-form[aria-labelledby="linear-destination-title"]'));
+
+    await vi.waitFor(() => {
+      expect(trigger(app, 'linear-project').getAttribute('aria-invalid')).toBe('true');
+    });
+    expect(trigger(app, 'linear-priority').getAttribute('aria-invalid')).toBe('true');
+    expect(trigger(app, 'linear-state').hasAttribute('aria-invalid')).toBe(false);
+    expect(trigger(app, 'linear-project').closest('.linear-field')?.classList.contains('linear-field--invalid')).toBe(true);
+    expect(text(app, '#linear-project-error')).toBe('Pick another project.');
+
+    key(app, 'linear-project', 'ArrowDown');
+    key(app, 'linear-project', 'Home');
+    key(app, 'linear-project', 'Enter');
+
+    await vi.waitFor(() => {
+      expect(trigger(app, 'linear-project').hasAttribute('aria-invalid')).toBe(false);
+    });
+    expect(trigger(app, 'linear-priority').getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('saves the values chosen with the new selects, with priority as a number', async () => {
+    const app = await ready();
+
+    await pick(app, 'linear-priority', 'Low');
+    await pick(app, 'linear-project', 'Project team-1');
+    await pick(app, 'linear-state', 'Todo');
+    await pick(app, 'linear-assignee', 'Alan Turing');
+    submit(el<HTMLFormElement>(app, 'form.linear-form[aria-labelledby="linear-destination-title"]'));
+
+    await vi.waitFor(() => {
+      expect(app.requests().some((request) => request.method === 'PUT')).toBe(true);
+    });
+    expect(app.requests().find((request) => request.method === 'PUT')?.body).toMatchObject({
+      teamId: 'team-1',
+      projectId: 'project-team-1',
+      stateId: 'state-2',
+      assigneeId: 'member-2',
+      priority: 4,
+    });
+  });
+
+  it('focuses the team trigger through its data-linear-ref', async () => {
+    const app = await ready(makeSettings({ failures: [], destination: null }));
+
+    expect(el(app, '#linear-team').getAttribute('data-linear-ref')).toBe('team');
+    el<HTMLElement>(app, '[data-linear-ref="team"]').focus();
+    expect(document.activeElement).toBe(trigger(app, 'linear-team'));
+  });
+});
+
 describe('accessibility of the rendered page', () => {
   it('gives every rendered control a label and valid description references', async () => {
     const app = await boot(makeSettings({ failures: [makeFailure()] }));
     await settled(app);
 
-    for (const control of app.container.querySelectorAll('input:not([type="hidden"]), select')) {
+    for (const control of app.container.querySelectorAll('input:not([type="hidden"]), [role="combobox"]')) {
       const labelled =
         control.closest('label') !== null ||
         app.container.querySelector(`label[for="${control.id}"]`) !== null;

@@ -34,6 +34,14 @@ describe('ApiError', () => {
     expect(new ApiError('x', { status: 503 }).isNetwork).toBe(false);
   });
 
+  it('exposes isUnauthenticated for 401 and 419 only', () => {
+    expect(new ApiError('x', { status: 401 }).isUnauthenticated).toBe(true);
+    expect(new ApiError('x', { status: 419 }).isUnauthenticated).toBe(true);
+    for (const status of [0, 403, 409, 422, 503]) {
+      expect(new ApiError('x', { status }).isUnauthenticated).toBe(false);
+    }
+  });
+
   it('can be reconnect-flagged', () => {
     expect(new ApiError('x', { status: 409, reconnect: true }).reconnect).toBe(true);
   });

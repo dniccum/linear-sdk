@@ -78,6 +78,7 @@ export function makeSettings(overrides: Partial<Settings> = {}): Settings {
       teamOptions: '/linear/api/teams/{team}/options',
       destination: '/linear/api/destination',
       retry: '/linear/api/issues/{link}/retry',
+      login: '/login',
     },
     connection: makeConnection(),
     destination: makeDestination(),

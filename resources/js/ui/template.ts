@@ -18,6 +18,98 @@ function fieldError(field: string, id: string): string {
   return `<p class="linear-field__error" id="${id}" x-show="hasError('${field}')" x-text="firstError('${field}')"></p>`;
 }
 
+/** What `selectTemplate()` needs to render one custom select. */
+export interface SelectSpec {
+  /** The trigger's id. The field's `<label>` must have `for` equal to it and `id` equal to `${id}-label`. */
+  id: string;
+  /** Name of the hidden input that carries the value. */
+  name: string;
+  /** Alpine expressions, evaluated in the enclosing component's scope. */
+  value: string;
+  /** Expression returning the `SelectItem[]`. */
+  items: string;
+  /** Expression run when a different item is chosen; the chosen value is available as `value`. */
+  onSelect: string;
+  placeholder?: string;
+  disabled?: string;
+  invalid?: string;
+  busy?: string;
+  /** Space separated ids (usually the field's error element) for `aria-describedby`. */
+  describedBy?: string;
+  /** Value for `data-linear-ref`, so code can focus the trigger (see `focusRef`). */
+  ref?: string;
+}
+
+const CHEVRON_ICON =
+  '<svg class="linear-select__chevron" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg>';
+
+const CHECK_ICON =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 6 9 17l-5-5"/></svg>';
+
+/**
+ * A shadcn-style select (see `components/select.ts`): a combobox button, a
+ * popup listbox and a hidden input. Use it instead of a native `<select>`.
+ */
+export function selectTemplate(spec: SelectSpec): string {
+  const { id } = spec;
+  const config = [
+    `id: '${id}'`,
+    `value: () => ${spec.value}`,
+    `items: () => ${spec.items}`,
+    `onSelect: (value) => ${spec.onSelect}`,
+    ...(spec.placeholder === undefined ? [] : [`placeholder: () => ${spec.placeholder}`]),
+    ...(spec.disabled === undefined ? [] : [`disabled: () => ${spec.disabled}`]),
+    ...(spec.invalid === undefined ? [] : [`invalid: () => ${spec.invalid}`]),
+    ...(spec.busy === undefined ? [] : [`busy: () => ${spec.busy}`]),
+  ].join(', ');
+  const optional = [
+    spec.describedBy === undefined ? '' : ` aria-describedby="${spec.describedBy}"`,
+    spec.ref === undefined ? '' : ` data-linear-ref="${spec.ref}"`,
+  ].join('');
+
+  return `
+<div class="linear-select" x-data="${COMPONENT_NAMES.select}($el, { ${config} })" @click.window="onOutside($event)" @linear-select-opened.window="onOutside($event)" @resize.window="onViewportChange()">
+  <input type="hidden" name="${spec.name}" :value="selectedValue">
+  <button
+    type="button"
+    class="linear-select__trigger"
+    id="${id}"
+    role="combobox"
+    aria-haspopup="listbox"
+    aria-controls="${id}-listbox"
+    aria-labelledby="${id}-label"${optional}
+    :aria-expanded="open"
+    :aria-activedescendant="activeDescendant"
+    :aria-invalid="isInvalid"
+    :aria-busy="isBusy"
+    :disabled="isDisabled"
+    @click="toggle()"
+    @keydown="onKeydown($event)"
+  >
+    <span class="linear-select__value" :class="{ 'linear-select__value--placeholder': isPlaceholder }" x-text="label"></span>
+    ${CHEVRON_ICON}
+  </button>
+  <div class="linear-select__content" id="${id}-listbox" role="listbox" aria-labelledby="${id}-label" tabindex="-1" x-show="open" style="display: none" :data-side="placement" :style="contentStyle" @mousedown.prevent>
+    <template x-for="(item, index) in entries" :key="String(item.value)">
+      <div
+        class="linear-select__item"
+        role="option"
+        :id="optionId(index)"
+        :class="{ 'linear-select__item--active': index === activeIndex, 'linear-select__item--selected': isSelected(index), 'linear-select__item--disabled': item.disabled === true }"
+        :aria-selected="isSelected(index)"
+        :aria-disabled="item.disabled === true"
+        @click="choose(index)"
+        @pointermove="highlight(index)"
+      >
+        <span class="linear-select__item-label" x-text="item.label"></span>
+        <span class="linear-select__check" x-show="isSelected(index)">${CHECK_ICON}</span>
+      </div>
+    </template>
+    <div class="linear-select__empty" role="presentation" x-show="entries.length === 0">No options</div>
+  </div>
+</div>`;
+}
+
 function headerTemplate(): string {
   return `
 <header class="linear-header">
@@ -191,35 +283,20 @@ function optionsReadyTemplate(): string {
 <div class="linear-options__ready">
   <div class="linear-grid">
     <div class="linear-field" :class="{ 'linear-field--invalid': hasError('projectId') }">
-      <label class="linear-field__label" for="linear-project">Project</label>
-      <select class="linear-select" id="linear-project" name="projectId" x-model="draft.projectId" @change="clearError('projectId')" :aria-invalid="hasError('projectId')" aria-describedby="linear-project-error">
-        <option value="">No project</option>
-        <template x-for="project in options.projects" :key="project.id">
-          <option :value="project.id" :selected="project.id === draft.projectId" x-text="project.name"></option>
-        </template>
-      </select>
+      <label class="linear-field__label" id="linear-project-label" for="linear-project">Project</label>
+      ${selectTemplate({ id: 'linear-project', name: 'projectId', value: 'draft.projectId', items: 'projectItems', onSelect: "selectField('projectId', value)", invalid: "hasError('projectId')", describedBy: 'linear-project-error' })}
       ${fieldError('projectId', 'linear-project-error')}
     </div>
 
     <div class="linear-field" :class="{ 'linear-field--invalid': hasError('stateId') }">
-      <label class="linear-field__label" for="linear-state">Status</label>
-      <select class="linear-select" id="linear-state" name="stateId" x-model="draft.stateId" @change="clearError('stateId')" :aria-invalid="hasError('stateId')" aria-describedby="linear-state-error">
-        <option value="">Team default</option>
-        <template x-for="state in options.states" :key="state.id">
-          <option :value="state.id" :selected="state.id === draft.stateId" x-text="state.name"></option>
-        </template>
-      </select>
+      <label class="linear-field__label" id="linear-state-label" for="linear-state">Status</label>
+      ${selectTemplate({ id: 'linear-state', name: 'stateId', value: 'draft.stateId', items: 'stateItems', onSelect: "selectField('stateId', value)", invalid: "hasError('stateId')", describedBy: 'linear-state-error' })}
       ${fieldError('stateId', 'linear-state-error')}
     </div>
 
     <div class="linear-field" :class="{ 'linear-field--invalid': hasError('assigneeId') }">
-      <label class="linear-field__label" for="linear-assignee">Assignee</label>
-      <select class="linear-select" id="linear-assignee" name="assigneeId" x-model="draft.assigneeId" @change="clearError('assigneeId')" :aria-invalid="hasError('assigneeId')" aria-describedby="linear-assignee-error">
-        <option value="">Unassigned</option>
-        <template x-for="member in options.members" :key="member.id">
-          <option :value="member.id" :selected="member.id === draft.assigneeId" x-text="member.name"></option>
-        </template>
-      </select>
+      <label class="linear-field__label" id="linear-assignee-label" for="linear-assignee">Assignee</label>
+      ${selectTemplate({ id: 'linear-assignee', name: 'assigneeId', value: 'draft.assigneeId', items: 'assigneeItems', onSelect: "selectField('assigneeId', value)", invalid: "hasError('assigneeId')", describedBy: 'linear-assignee-error' })}
       ${fieldError('assigneeId', 'linear-assignee-error')}
     </div>
   </div>
@@ -274,24 +351,8 @@ function destinationFormTemplate(): string {
 
   <div class="linear-grid">
     <div class="linear-field" :class="{ 'linear-field--invalid': hasError('teamId') }">
-      <label class="linear-field__label" for="linear-team">Team</label>
-      <select
-        class="linear-select"
-        id="linear-team"
-        name="teamId"
-        data-linear-ref="team"
-        x-model="draft.teamId"
-        @change="onTeamChange()"
-        :disabled="teamsState !== 'ready'"
-        :aria-busy="teamsState === 'loading'"
-        :aria-invalid="hasError('teamId')"
-        aria-describedby="linear-team-error"
-      >
-        <option value="" x-text="teamPlaceholder"></option>
-        <template x-for="team in teams" :key="team.id">
-          <option :value="team.id" :selected="team.id === draft.teamId" x-text="team.name + ' (' + team.key + ')'"></option>
-        </template>
-      </select>
+      <label class="linear-field__label" id="linear-team-label" for="linear-team">Team</label>
+      ${selectTemplate({ id: 'linear-team', name: 'teamId', value: 'draft.teamId', items: 'teamItems', onSelect: "selectTeam(value)", placeholder: 'teamPlaceholder', disabled: "teamsState !== 'ready'", busy: "teamsState === 'loading'", invalid: "hasError('teamId')", ref: 'team', describedBy: 'linear-team-error' })}
       ${fieldError('teamId', 'linear-team-error')}
       <template x-if="teamsState === 'error'">
         <div class="linear-inline-error" role="alert">
@@ -302,12 +363,8 @@ function destinationFormTemplate(): string {
     </div>
 
     <div class="linear-field" :class="{ 'linear-field--invalid': hasError('priority') }">
-      <label class="linear-field__label" for="linear-priority">Priority</label>
-      <select class="linear-select" id="linear-priority" name="priority" x-model.number="draft.priority" @change="clearError('priority')" :aria-invalid="hasError('priority')" aria-describedby="linear-priority-error">
-        <template x-for="priority in priorities" :key="priority.value">
-          <option :value="priority.value" :selected="priority.value === draft.priority" x-text="priority.label"></option>
-        </template>
-      </select>
+      <label class="linear-field__label" id="linear-priority-label" for="linear-priority">Priority</label>
+      ${selectTemplate({ id: 'linear-priority', name: 'priority', value: 'draft.priority', items: 'priorityItems', onSelect: "selectPriority(value)", invalid: "hasError('priority')", describedBy: 'linear-priority-error' })}
       ${fieldError('priority', 'linear-priority-error')}
     </div>
   </div>

@@ -56,6 +56,7 @@ describe('mount', () => {
       'destinationForm',
       'failuresList',
       'linearApp',
+      'linearSelect',
     ]);
     expect(alpine.start).toHaveBeenCalledTimes(1);
     expect(window.Alpine).toBeDefined();

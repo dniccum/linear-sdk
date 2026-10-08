@@ -37,6 +37,8 @@ export interface Urls {
   destination: string;
   /** Contains the literal `{link}` placeholder. */
   retry: string;
+  /** Where to send a signed-out user; `''` when no login redirect is configured. */
+  login: string;
 }
 
 export interface Connection {

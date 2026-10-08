@@ -4,11 +4,15 @@ import { connectionCard } from './connection-card';
 import { destinationForm } from './destination-form';
 import { failuresList } from './failures-list';
 import { linearApp } from './linear-app';
+import { linearSelect, type SelectConfig } from './select';
 
 /** The slice of Alpine's API used to register components (`Alpine.data`). */
 export interface ComponentRegistry {
-  /** `factory` receives whatever the `x-data` expression passes, here the host element (`$el`). */
-  data(name: string, factory: (host: HTMLElement) => object): void;
+  /**
+   * `factory` receives whatever the `x-data` expression passes: the host
+   * element (`$el`) and, for `linearSelect` only, its configuration.
+   */
+  data(name: string, factory: (host: HTMLElement, config: SelectConfig) => object): void;
 }
 
 export interface ComponentContext {
@@ -22,6 +26,7 @@ export const COMPONENT_NAMES = {
   connection: 'connectionCard',
   destination: 'destinationForm',
   failures: 'failuresList',
+  select: 'linearSelect',
 } as const;
 
 /** Registers every Alpine component with its dependencies bound. */
@@ -32,4 +37,5 @@ export function registerComponents(registry: ComponentRegistry, { settings, clie
     destinationForm({ host, destination: settings.destination, client }),
   );
   registry.data(COMPONENT_NAMES.failures, (host) => failuresList({ host, client }));
+  registry.data(COMPONENT_NAMES.select, (host, config) => linearSelect(host, config));
 }

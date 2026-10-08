@@ -7,6 +7,7 @@ import {
   arrayOf,
   isBoolean,
   isNumber,
+  isRecord,
   isString,
   literal,
   nullable,
@@ -61,6 +62,7 @@ export const isUrls: Guard<Urls> = shape<Urls>({
   teamOptions: isString,
   destination: isString,
   retry: isString,
+  login: isString,
 });
 
 export const isConnection: Guard<Connection> = shape<Connection>({
@@ -153,3 +155,15 @@ export const isMessageBody: Guard<{ message: string }> = shape<{ message: string
 export const isFieldErrorsBody: Guard<{ errors: Record<string, string[]> }> = shape<{
   errors: Record<string, string[]>;
 }>({ errors: recordOf(arrayOf(isString)) });
+
+/**
+ * Fills in what older servers do not send yet, before `isSettings` checks the
+ * payload: `urls.login` defaults to `''` (no login redirect).
+ */
+export function withSettingsDefaults(value: unknown): unknown {
+  if (!isRecord(value) || !isRecord(value['urls']) || value['urls']['login'] !== undefined) {
+    return value;
+  }
+
+  return { ...value, urls: { ...value['urls'], login: '' } };
+}

@@ -18,6 +18,21 @@ describe('readSettings', () => {
     expect(readSettings(document)).toEqual(settings);
   });
 
+  it('treats a missing urls.login as no login redirect', () => {
+    const settings = makeSettings();
+    const urls: Partial<typeof settings.urls> = { ...settings.urls };
+    delete urls.login;
+    renderPayload(JSON.stringify({ ...settings, urls }));
+
+    expect(readSettings(document)).toEqual({ ...settings, urls: { ...settings.urls, login: '' } });
+  });
+
+  it('keeps a configured login URL', () => {
+    renderPayload(JSON.stringify(makeSettings({ urls: { ...makeSettings().urls, login: 'https://example.com/login' } })));
+
+    expect(readSettings(document).urls.login).toBe('https://example.com/login');
+  });
+
   it('throws a SettingsError when the element is missing', () => {
     expect(() => readSettings(document)).toThrow(SettingsError);
     expect(() => readSettings(document)).toThrow(/Missing <script id="linear-settings"/);

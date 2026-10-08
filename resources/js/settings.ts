@@ -1,4 +1,4 @@
-import { isSettings } from './schema';
+import { isSettings, withSettingsDefaults } from './schema';
 import type { Settings } from './types';
 
 /** Id of the `<script type="application/json">` element the Blade view renders. */
@@ -27,7 +27,7 @@ export function readSettings(root: Document): Settings {
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(element.text);
+    parsed = withSettingsDefaults(JSON.parse(element.text));
   } catch (cause) {
     throw new SettingsError('The embedded Linear settings are not valid JSON.', { cause });
   }

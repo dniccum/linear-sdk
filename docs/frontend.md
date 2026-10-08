@@ -8,6 +8,8 @@ The configuration page is a small TypeScript application built with [Alpine.js](
 - [How components talk to each other](#how-components-talk-to-each-other)
 - [Running the dev server against the workbench](#running-the-dev-server-against-the-workbench)
 - [Rebuilding and committing assets](#rebuilding-and-committing-assets)
+- [The select component](#the-select-component)
+- [Expired sessions and the login redirect](#expired-sessions-and-the-login-redirect)
 - [Adding a component, step by step](#adding-a-component-step-by-step)
 - [TypeScript conventions](#typescript-conventions)
 - [Testing](#testing)
@@ -59,8 +61,9 @@ resources/
       destination-form.ts   `destinationForm`: teams, options, validation, save, remove
       destination-draft.ts  Pure helpers: form draft <-> payload, pruning, field-error grouping
       failures-list.ts      `failuresList`: retry with optimistic removal
+      select.ts             `linearSelect`: reusable accessible custom select (shadcn/ui style)
       events.ts             Typed event names + emit/reportReconnect/focusRef helpers
-    ui/template.ts          The whole UI as Alpine-annotated HTML strings + renderFatalError()
+    ui/template.ts          The whole UI as Alpine-annotated HTML strings + selectTemplate() + renderFatalError()
     __tests__/              Vitest tests (mirrors the source layout) and shared fixtures
 public/build/               Compiled assets and `.vite/manifest.json` (committed)
 ```
@@ -158,6 +161,45 @@ git add public/build
 - Always run `npm run build` with the locked dependencies (`npm ci`, not `npm install`) before committing, so a stray newer minor version does not change the output.
 
 `public/build` must stay out of `.gitignore` (only the repo-root `/build` is ignored, which is a different directory) and `node_modules` must stay ignored.
+
+## The select component
+
+The five destination dropdowns (team, priority, project, status, assignee) are not native `<select>`s. They use `linearSelect` (`components/select.ts`), a custom select styled after shadcn/ui's Select and built on the WAI-ARIA *select-only combobox* pattern.
+
+What it renders (via `selectTemplate()` in `ui/template.ts`):
+
+- a `<button type="button" role="combobox">` trigger that keeps DOM focus the whole time (`aria-haspopup`, `aria-expanded`, `aria-controls`, `aria-labelledby`, `aria-activedescendant`, `aria-invalid`, `aria-busy`, `aria-describedby`);
+- a `role="listbox"` popup with `role="option"` rows (`aria-selected`, a check icon on the selected row, a muted "No options" row when empty);
+- a hidden `<input name="...">` carrying the value, so form semantics survive.
+
+Behaviour: Enter, Space and the arrow keys open it; while open the arrows, Home and End move the highlight, Enter or Space choose, Escape closes and refocuses the trigger, Tab closes without selecting, and typing letters jumps to a matching item (the buffer resets after 500 ms). A click outside, another select opening, or a window resize closes it. The popup opens below the trigger and flips above it when there is more room there; its height is capped at 320px (or the available room) and it scrolls. Choosing the value that is already selected closes the popup but does not call `onSelect`, matching a native `change` event.
+
+The component never owns the value; it reads and writes the parent's state through closures that Alpine evaluates in the *enclosing* component's scope:
+
+```ts
+selectTemplate({
+  id: 'linear-project',               // trigger id; the <label> needs for="linear-project" and id="linear-project-label"
+  name: 'projectId',                  // hidden input name
+  value: 'draft.projectId',           // expression: current value (string | number)
+  items: 'projectItems',              // expression: SelectItem[] ({ value, label, disabled? })
+  onSelect: "selectField('projectId', value)", // runs when a different item is chosen; `value` is the choice
+  invalid: "hasError('projectId')",   // optional: placeholder, disabled, busy, invalid, describedBy, ref
+  describedBy: 'linear-project-error',
+})
+```
+
+To reuse it: build the items in a getter on the parent component (a `''` item is the "none" choice and is shown muted), add a handler that writes the value, put `selectTemplate({...})` in the field next to a `<label id="{id}-label" for="{id}">`, and style nothing else: the `.linear-select*` classes in `linear.css` (trigger, content, item, item--active, item--selected, check, chevron, empty) cover light, dark and mobile. `data-linear-ref` set through `ref` lands on the trigger, so `focusRef()` focuses the button. Use `selectTemplate` rather than writing the markup by hand so the ids and ARIA wiring stay consistent.
+
+Tests: `__tests__/components/select.test.ts` drives the component directly (keyboard, typeahead, placement with mocked geometry, scrolling); `integration.test.ts` drives the real rendered selects with Alpine (`pick(app, id, label)` clicks the trigger and an option).
+
+## Expired sessions and the login redirect
+
+The settings payload carries `urls.login` (`''` when the host has no login page; the client treats a payload without the key as `''`, see `withSettingsDefaults()` in `schema.ts`). `createClient()` takes an injectable third argument, `redirect` (default `location.assign`). When any request fails with HTTP 401 or 419:
+
+- with a login URL, the browser is sent there, at most once however many requests fail together, and the request rejects with "Your session has expired. Redirecting to sign in…";
+- with no login URL (or if `redirect` throws), it rejects with "Your session has expired. Please sign in again.", and a later failure tries the redirect again.
+
+The server's own wording is never shown for these two statuses. Because the request still rejects, existing handlers restore their state as usual (loading flags reset, the failures list puts the optimistic item back). 403, 409, 422, 503 and the rest are not treated as login redirects.
 
 ## Adding a component, step by step
 
@@ -368,6 +410,6 @@ Resolve them from the container and call `execute()` (every action takes the own
 
 ## Notes: accessibility, CSP, localisation
 
-- **Accessibility.** One `h1`, labelled `section`s, a `label` for every control, `fieldset`/`legend` for the send-mode radios and label checkboxes, `aria-describedby` for hints and errors, `aria-invalid` on failing fields, persistent `role="status"`/`role="alert"` live regions for banners, `aria-busy` + a visible and screen-reader caption while options load, visible `:focus-visible` outlines, focus moved to the right control after disclosure/removal, `prefers-reduced-motion` and `forced-colors` support. The integration tests assert label and `aria-describedby` integrity on the rendered page; keep them green when you add UI.
+- **Accessibility.** One `h1`, labelled `section`s, a `label` for every control (the custom selects link their `<label>` through `for` and `aria-labelledby`), `fieldset`/`legend` for the send-mode radios and label checkboxes, `aria-describedby` for hints and errors, `aria-invalid` on failing fields, persistent `role="status"`/`role="alert"` live regions for banners, `aria-busy` + a visible and screen-reader caption while options load, visible `:focus-visible` outlines, focus moved to the right control after disclosure/removal, `prefers-reduced-motion` and `forced-colors` support. The integration tests assert label and `aria-describedby` integrity on the rendered page; keep them green when you add UI.
 - **Content Security Policy.** Alpine's standard build evaluates expressions with `new Function`, which needs `'unsafe-eval'`. Strict-CSP hosts can switch to `@alpinejs/csp`, but its expression grammar is more limited (no inline `&&`/ternaries), so the templates and components would need adjusting. The templates already keep logic in getters and methods to make that practical.
 - **Localisation.** User-facing strings are English literals in `ui/template.ts` and the component files. To localise, send a dictionary in the settings payload (extend `Settings` and `isSettings`) and look strings up where they are produced.
