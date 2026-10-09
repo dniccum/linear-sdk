@@ -9,6 +9,12 @@ declare(strict_types=1);
 |
 | Publish this file with `php artisan vendor:publish --tag=linear-config`.
 |
+| This file is for the Laravel integration. In other frameworks build a
+| `Dniccum\Linear\LinearConfig` instead (`LinearConfig::fromArray()` reads the
+| auth_mode, client_id, client_secret, redirect, scopes, api_url,
+| authorize_url, on_update and on_delete keys below); the database, route,
+| page, branding and queue options only apply to Laravel.
+|
 */
 
 return [

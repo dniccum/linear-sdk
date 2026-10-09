@@ -30,7 +30,8 @@ test('tokens parse comma or space separated and array scopes', function (mixed $
 
     expect($tokens->scopes)->toBe(['read', 'issues:create'])
         ->and($tokens->expiresIn)->toBe(3600)
-        ->and($tokens->expiresAt()?->isFuture())->toBeTrue()
+        ->and($tokens->expiresAt()?->getTimestamp())->toBeGreaterThan(time() + 3500)
+        ->and($tokens->expiresAt(new DateTimeImmutable('2026-01-01T00:00:00Z'))?->format('c'))->toBe('2026-01-01T01:00:00+00:00')
         ->and($tokens->missingScopes(['read', 'comments:create']))->toBe(['comments:create']);
 })->with([
     'comma separated' => ['read,issues:create'],

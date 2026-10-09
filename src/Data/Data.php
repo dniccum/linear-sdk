@@ -4,16 +4,13 @@ declare(strict_types=1);
 
 namespace Dniccum\Linear\Data;
 
-use Illuminate\Contracts\Support\Arrayable;
 use JsonSerializable;
 
 /**
  * Base for data transfer objects that leave the server. toArray() is the wire
  * format.
- *
- * @implements Arrayable<string, mixed>
  */
-abstract readonly class Data implements Arrayable, JsonSerializable
+abstract readonly class Data implements JsonSerializable
 {
     /**
      * @return array<string, mixed>

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Dniccum\Linear\Models;
 
 use Carbon\CarbonInterface;
+use Dniccum\Linear\Contracts\CommentDelivery;
+use Dniccum\Linear\Contracts\IssueLink;
 use Dniccum\Linear\Database\Factories\LinearCommentDeliveryFactory;
 use Dniccum\Linear\Enums\LinearSyncStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -34,7 +36,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
  * @property-read LinearIssueLink $issueLink
  * @property-read Model|null $source
  */
-class LinearCommentDelivery extends Model
+class LinearCommentDelivery extends Model implements CommentDelivery
 {
     /** @use HasFactory<LinearCommentDeliveryFactory> */
     use HasFactory;
@@ -83,6 +85,72 @@ class LinearCommentDelivery extends Model
     public function source(): MorphTo
     {
         return $this->morphTo();
+    }
+
+    public function deliveryId(): int|string
+    {
+        $key = $this->getKey();
+
+        return is_int($key) || is_string($key) ? $key : '';
+    }
+
+    public function parentLink(): IssueLink
+    {
+        return $this->issueLink;
+    }
+
+    public function syncStatus(): LinearSyncStatus
+    {
+        return $this->status;
+    }
+
+    public function attemptCount(): int
+    {
+        return $this->attempts;
+    }
+
+    public function commentId(): string
+    {
+        return $this->linear_comment_id;
+    }
+
+    public function commentBody(): string
+    {
+        return $this->body;
+    }
+
+    public function wasJustQueued(): bool
+    {
+        return $this->wasRecentlyCreated;
+    }
+
+    public function requeue(): void
+    {
+        $this->forceFill(['status' => LinearSyncStatus::Pending, 'last_error' => null])->save();
+    }
+
+    public function recordAttempt(): void
+    {
+        $this->increment('attempts');
+    }
+
+    public function markDelivered(): void
+    {
+        $this->forceFill([
+            'status' => LinearSyncStatus::Synced,
+            'last_error' => null,
+            'delivered_at' => now(),
+        ])->save();
+    }
+
+    public function markFailed(string $message): void
+    {
+        $this->forceFill(['status' => LinearSyncStatus::Failed, 'last_error' => $message])->save();
+    }
+
+    public function recordError(string $message): void
+    {
+        $this->forceFill(['last_error' => $message])->save();
     }
 
     protected static function newFactory(): LinearCommentDeliveryFactory

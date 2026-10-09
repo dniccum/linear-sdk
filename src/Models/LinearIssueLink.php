@@ -5,10 +5,15 @@ declare(strict_types=1);
 namespace Dniccum\Linear\Models;
 
 use Carbon\CarbonInterface;
+use Dniccum\Linear\Contracts\Connection;
+use Dniccum\Linear\Contracts\IssueLink;
+use Dniccum\Linear\Contracts\IssueOwner;
+use Dniccum\Linear\Data\Issue;
 use Dniccum\Linear\Data\IssuePayload;
 use Dniccum\Linear\Database\Factories\LinearIssueLinkFactory;
 use Dniccum\Linear\Enums\LinearIssueSource;
 use Dniccum\Linear\Enums\LinearSyncStatus;
+use Dniccum\Linear\Laravel\Casts\IssuePayloadCast;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -43,7 +48,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
  * @property-read Model|null $linkable
  * @property-read Model|null $owner
  */
-class LinearIssueLink extends Model
+class LinearIssueLink extends Model implements IssueLink
 {
     /** @use HasFactory<LinearIssueLinkFactory> */
     use HasFactory;
@@ -123,6 +128,103 @@ class LinearIssueLink extends Model
         return $this->status === LinearSyncStatus::Synced;
     }
 
+    public function linkId(): int|string
+    {
+        $key = $this->getKey();
+
+        return is_int($key) || is_string($key) ? $key : '';
+    }
+
+    public function syncStatus(): LinearSyncStatus
+    {
+        return $this->status;
+    }
+
+    public function attemptCount(): int
+    {
+        return $this->attempts;
+    }
+
+    public function issueId(): string
+    {
+        return $this->linear_issue_id;
+    }
+
+    public function organizationId(): string
+    {
+        return $this->linear_organization_id;
+    }
+
+    public function issueIdentifier(): ?string
+    {
+        return $this->linear_issue_identifier;
+    }
+
+    public function issueUrl(): ?string
+    {
+        return $this->linear_issue_url;
+    }
+
+    public function issuePayload(): IssuePayload
+    {
+        return $this->payload;
+    }
+
+    public function restart(IssueOwner $owner, Connection $connection, LinearIssueSource $source, IssuePayload $payload, ?string $newIssueId = null): void
+    {
+        if ($newIssueId !== null) {
+            $this->forceFill(['linear_issue_id' => $newIssueId, 'attempts' => 0]);
+        }
+
+        $this->forceFill([
+            'owner_type' => $owner->ownerType(),
+            'owner_id' => $owner->ownerId(),
+            'connection_id' => $connection->connectionId(),
+            'linear_organization_id' => $connection->organizationId(),
+            'source' => $source,
+            'status' => LinearSyncStatus::Pending,
+            'payload' => $payload,
+            'last_error' => null,
+        ])->save();
+    }
+
+    public function requeue(): void
+    {
+        $this->forceFill(['status' => LinearSyncStatus::Pending, 'last_error' => null])->save();
+    }
+
+    public function recordAttempt(): void
+    {
+        $this->increment('attempts');
+    }
+
+    public function freezePayload(IssuePayload $payload): void
+    {
+        $this->forceFill(['payload' => $payload])->save();
+    }
+
+    public function markSynced(Connection $connection, Issue $issue): void
+    {
+        $this->forceFill([
+            'connection_id' => $connection->connectionId(),
+            'status' => LinearSyncStatus::Synced,
+            'linear_issue_identifier' => $issue->identifier,
+            'linear_issue_url' => $issue->url,
+            'last_error' => null,
+            'synced_at' => now(),
+        ])->save();
+    }
+
+    public function markFailed(string $message): void
+    {
+        $this->forceFill(['status' => LinearSyncStatus::Failed, 'last_error' => $message])->save();
+    }
+
+    public function recordError(string $message): void
+    {
+        $this->forceFill(['last_error' => $message])->save();
+    }
+
     /**
      * Whether a manual retry would do anything: the issue failed, or it was
      * filed but some of its comments failed. Pending work already has an
@@ -147,7 +249,7 @@ class LinearIssueLink extends Model
         return [
             'source' => LinearIssueSource::class,
             'status' => LinearSyncStatus::class,
-            'payload' => IssuePayload::class,
+            'payload' => IssuePayloadCast::class,
             'attempts' => 'integer',
             'synced_at' => 'datetime',
         ];

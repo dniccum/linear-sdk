@@ -6,10 +6,13 @@ namespace Dniccum\Linear\Services;
 
 use Dniccum\Linear\Data\Tokens;
 use Dniccum\Linear\Exceptions\LinearApiException;
+use Dniccum\Linear\LinearConfig;
 use Dniccum\Linear\Support\Json;
-use Illuminate\Http\Client\Factory as HttpFactory;
-use Illuminate\Http\Client\Response;
-use Illuminate\Support\Facades\Log;
+use Dniccum\Linear\Transport\Response;
+use Dniccum\Linear\Transport\Transport;
+use LogicException;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 use Throwable;
 
 /**
@@ -18,23 +21,30 @@ use Throwable;
  */
 class LinearOAuth
 {
+    protected LoggerInterface $logger;
+
     public function __construct(
-        protected HttpFactory $http,
-    ) {}
+        protected Transport $http,
+        protected LinearConfig $config,
+        ?LoggerInterface $logger = null,
+    ) {
+        $this->logger = $logger ?? new NullLogger;
+    }
 
     public function isConfigured(): bool
     {
-        return filled(config('linear.client_id')) && filled(config('linear.client_secret'));
+        return $this->config->hasOAuthCredentials();
     }
 
     /**
      * The callback URL registered with the Linear application.
+     *
+     * @throws LogicException When no redirect URI is configured.
      */
     public function redirectUri(): string
     {
-        $redirect = config('linear.redirect');
-
-        return is_string($redirect) && $redirect !== '' ? $redirect : route('linear.callback');
+        return $this->config->redirectUri
+            ?? throw new LogicException('No OAuth redirect URI is configured. Set the "redirect" option to the callback URL registered with your Linear application.');
     }
 
     /**
@@ -44,7 +54,7 @@ class LinearOAuth
      */
     public function scopes(): array
     {
-        return Json::strings(config('linear.scopes'));
+        return $this->config->scopes;
     }
 
     /**
@@ -55,8 +65,8 @@ class LinearOAuth
      */
     public function authorizationUrl(string $state, string $codeVerifier): string
     {
-        return config()->string('linear.authorize_url').'?'.http_build_query([
-            'client_id' => config('linear.client_id'),
+        return $this->config->authorizeUrl.'?'.http_build_query([
+            'client_id' => $this->config->clientId,
             'redirect_uri' => $this->redirectUri(),
             'response_type' => 'code',
             'scope' => implode(',', $this->scopes()),
@@ -109,13 +119,10 @@ class LinearOAuth
     {
         try {
             return $this->http
-                ->asForm()
-                ->withToken($token)
-                ->timeout(10)
-                ->post($this->url('/oauth/revoke'), ['token' => $token])
+                ->postForm($this->config->apiEndpoint('/oauth/revoke'), ['Authorization' => 'Bearer '.$token], ['token' => $token])
                 ->successful();
         } catch (Throwable $e) {
-            Log::warning('Failed to revoke a Linear token.', ['exception' => $e->getMessage()]);
+            $this->logger->warning('Failed to revoke a Linear token.', ['exception' => $e->getMessage()]);
 
             return false;
         }
@@ -129,15 +136,11 @@ class LinearOAuth
     protected function requestToken(array $params): Tokens
     {
         try {
-            $response = $this->http
-                ->asForm()
-                ->acceptJson()
-                ->timeout(15)
-                ->post($this->url('/oauth/token'), [
-                    ...$params,
-                    'client_id' => config('linear.client_id'),
-                    'client_secret' => config('linear.client_secret'),
-                ]);
+            $response = $this->http->postForm($this->config->apiEndpoint('/oauth/token'), [], [
+                ...$params,
+                'client_id' => $this->config->clientId,
+                'client_secret' => $this->config->clientSecret,
+            ]);
         } catch (Throwable) {
             throw new LinearApiException('Could not reach Linear. Please try again.', LinearApiException::TRANSIENT);
         }
@@ -153,7 +156,7 @@ class LinearOAuth
 
     protected function tokenFailure(Response $response): LinearApiException
     {
-        Log::warning('Linear rejected an OAuth token request.', [
+        $this->logger->warning('Linear rejected an OAuth token request.', [
             'status' => $response->status(),
             'error' => $response->json('error'),
         ]);
@@ -166,10 +169,5 @@ class LinearOAuth
             'Linear did not accept the authorization. Please reconnect your Linear workspace.',
             LinearApiException::AUTHENTICATION,
         );
-    }
-
-    protected function url(string $path): string
-    {
-        return rtrim(config()->string('linear.api_url'), '/').$path;
     }
 }

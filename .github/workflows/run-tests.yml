@@ -61,6 +61,46 @@ jobs:
       - name: Execute tests
         run: vendor/bin/pest --ci
 
+  # The core must work in an application that has no Laravel at all (Symfony,
+  # Slim, plain PHP): install without dev dependencies and without Laravel,
+  # add a PSR-18 client, and run a smoke test.
+  core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: true
+      matrix:
+        php: [8.3, 8.4]
+        stability: [prefer-lowest, prefer-stable]
+
+    name: Core without Laravel - P${{ matrix.php }} - ${{ matrix.stability }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, curl
+          coverage: none
+
+      - name: Install the package without dev dependencies
+        run: |
+          composer update --no-dev --no-scripts --${{ matrix.stability }} --prefer-dist --no-interaction
+          composer require --update-no-dev --no-scripts symfony/http-client nyholm/psr7 --no-interaction
+
+      - name: Make sure Laravel is not installed
+        run: |
+          if composer show | grep -Ei 'laravel|illuminate'; then
+            echo "::error::Laravel must not be installed for the core to be tested"
+            exit 1
+          fi
+
+      - name: Run the smoke test
+        run: php -d zend.assertions=1 -d assert.exception=1 tests/Standalone/smoke.php
+
   coverage:
     runs-on: ubuntu-latest
     timeout-minutes: 10

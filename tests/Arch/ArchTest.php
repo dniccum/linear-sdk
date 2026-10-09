@@ -90,3 +90,81 @@ arch('only the testing support code touches PHPUnit')
 arch('the domain does not depend on the HTTP layer')
     ->expect(['Dniccum\Linear\Services', 'Dniccum\Linear\Models', 'Dniccum\Linear\Data', 'Dniccum\Linear\Jobs'])
     ->not->toUse('Dniccum\Linear\Http');
+
+/*
+|--------------------------------------------------------------------------
+| Framework independence
+|--------------------------------------------------------------------------
+|
+| The core must run in any PHP application: it may use PSR interfaces and
+| nothing from Laravel, Carbon or the Laravel adapter. Everything that
+| touches Laravel lives in the Laravel adapter list below.
+|
+*/
+
+const LINEAR_CORE = [
+    'Dniccum\Linear\Contracts',
+    'Dniccum\Linear\Transport',
+    'Dniccum\Linear\Enums',
+    'Dniccum\Linear\Events',
+    'Dniccum\Linear\Exceptions',
+    'Dniccum\Linear\LinearConfig',
+    'Dniccum\Linear\Services\LinearClient',
+    'Dniccum\Linear\Services\LinearOAuth',
+    'Dniccum\Linear\Services\LinearIssueSync',
+    'Dniccum\Linear\Services\DestinationResolver',
+    'Dniccum\Linear\Services\ConnectionClient',
+    'Dniccum\Linear\Support\Json',
+    'Dniccum\Linear\Support\Emoji',
+    'Dniccum\Linear\Support\Uuid',
+    'Dniccum\Linear\Support\NullMutex',
+    'Dniccum\Linear\Support\LogErrorReporter',
+    'Dniccum\Linear\Testing\InMemory',
+    'Dniccum\Linear\Testing\FakeLinearClient',
+    'Dniccum\Linear\Testing\FakeLinearOAuth',
+    'Dniccum\Linear\Testing\NullTransport',
+    'Dniccum\Linear\Data',
+];
+
+arch('the core does not use Laravel, Carbon or the Laravel adapter')
+    ->expect(LINEAR_CORE)
+    ->not->toUse([
+        'Illuminate',
+        'Laravel',
+        'Carbon',
+        'Spatie',
+        'Dniccum\Linear\Laravel',
+        'Dniccum\Linear\Models',
+        'Dniccum\Linear\Http',
+        'Dniccum\Linear\Jobs',
+        'Dniccum\Linear\Concerns',
+        'Dniccum\Linear\Actions',
+        'Dniccum\Linear\Facades',
+        'Dniccum\Linear\View',
+        'Dniccum\Linear\Observers',
+        'Dniccum\Linear\Support\ModelHooks',
+        'Dniccum\Linear\Support\LinearAssets',
+        'Dniccum\Linear\Linear',
+        'Dniccum\Linear\LinearServiceProvider',
+    ])
+    ->ignoring([
+        // The page's payloads and the OAuth callback result are part of the
+        // Laravel adapter, even though they live in the Data namespace.
+        'Dniccum\Linear\Data\Settings',
+        'Dniccum\Linear\Data\OAuthResult',
+    ]);
+
+arch('the core only depends on PHP and PSR interfaces')
+    ->expect(LINEAR_CORE)
+    ->toOnlyUse([
+        'Dniccum\Linear',
+        'Psr\Http\Client',
+        'Psr\Http\Message',
+        'Psr\EventDispatcher',
+        'Psr\Log',
+        'PHPUnit',
+    ])
+    ->ignoring([
+        'Dniccum\Linear\Data\Settings',
+        'Dniccum\Linear\Data\OAuthResult',
+    ]);

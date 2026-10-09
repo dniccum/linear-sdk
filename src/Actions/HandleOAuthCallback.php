@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Dniccum\Linear\Actions;
 
+use Carbon\CarbonImmutable;
 use Dniccum\Linear\Data\OAuthResult;
 use Dniccum\Linear\Enums\LinearAuthMode;
 use Dniccum\Linear\Enums\LinearConnectionStatus;
@@ -75,7 +76,7 @@ class HandleOAuthCallback
                 'linear_user_email' => $viewer->email,
                 'access_token' => $tokens->accessToken,
                 'refresh_token' => $tokens->refreshToken,
-                'token_expires_at' => $tokens->expiresAt(),
+                'token_expires_at' => $tokens->expiresAt(CarbonImmutable::now()),
                 'scopes' => $tokens->scopes,
                 'status' => LinearConnectionStatus::Active,
                 'last_error' => null,
