@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Dniccum\Linear\Models;
 
 use Carbon\CarbonInterface;
+use Dniccum\Linear\Contracts\Connection;
+use Dniccum\Linear\Data\Tokens;
 use Dniccum\Linear\Database\Factories\LinearConnectionFactory;
 use Dniccum\Linear\Enums\LinearAuthMode;
 use Dniccum\Linear\Enums\LinearConnectionStatus;
@@ -43,7 +45,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
  * @property CarbonInterface|null $updated_at
  * @property-read Model|null $owner
  */
-class LinearConnection extends Model
+class LinearConnection extends Model implements Connection
 {
     /** @use HasFactory<LinearConnectionFactory> */
     use HasFactory;
@@ -95,6 +97,48 @@ class LinearConnection extends Model
     public function owner(): MorphTo
     {
         return $this->morphTo();
+    }
+
+    public function connectionId(): int|string
+    {
+        $key = $this->getKey();
+
+        return is_int($key) || is_string($key) ? $key : '';
+    }
+
+    public function organizationId(): string
+    {
+        return $this->linear_organization_id;
+    }
+
+    public function authMode(): LinearAuthMode
+    {
+        return $this->auth_type;
+    }
+
+    public function accessToken(): string
+    {
+        return $this->access_token;
+    }
+
+    public function refreshToken(): ?string
+    {
+        return $this->refresh_token;
+    }
+
+    public function reload(): void
+    {
+        $this->refresh();
+    }
+
+    public function storeTokens(Tokens $tokens): void
+    {
+        $this->forceFill([
+            'access_token' => $tokens->accessToken,
+            'refresh_token' => $tokens->refreshToken ?? $this->refresh_token,
+            'token_expires_at' => $tokens->expiresAt(),
+            'status' => LinearConnectionStatus::Active,
+        ])->save();
     }
 
     public function isActive(): bool

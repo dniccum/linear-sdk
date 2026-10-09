@@ -11,6 +11,9 @@ use Illuminate\Support\Facades\Http;
 use Workbench\App\Models\User;
 
 pest()->extend(TestCase::class)->in('Feature', 'Unit');
+
+// The framework-agnostic core is tested without Laravel booted.
+require_once __DIR__.'/Core/Support/helpers.php';
 pest()->extend(IgnoredRoutesTestCase::class)->in('IgnoredRoutes');
 
 /*

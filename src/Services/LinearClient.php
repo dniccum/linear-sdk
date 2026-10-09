@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Dniccum\Linear\Services;
 
+use Dniccum\Linear\Contracts\Connection;
+use Dniccum\Linear\Contracts\Mutex;
 use Dniccum\Linear\Data\Comment;
 use Dniccum\Linear\Data\Issue;
 use Dniccum\Linear\Data\IssuePayload;
@@ -15,15 +17,15 @@ use Dniccum\Linear\Data\TeamOptions;
 use Dniccum\Linear\Data\Viewer;
 use Dniccum\Linear\Data\WorkflowState;
 use Dniccum\Linear\Enums\LinearAuthMode;
-use Dniccum\Linear\Enums\LinearConnectionStatus;
 use Dniccum\Linear\Exceptions\LinearApiException;
-use Dniccum\Linear\Models\LinearConnection;
+use Dniccum\Linear\LinearConfig;
 use Dniccum\Linear\Support\Json;
+use Dniccum\Linear\Support\NullMutex;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Log;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 use Throwable;
 
 /**
@@ -33,13 +35,26 @@ use Throwable;
  * it is about to expire, and flags the connection for reconnection when
  * Linear rejects the credentials outright. Personal API keys are sent as the
  * raw Authorization header and never refreshed.
+ *
+ * It needs no framework: requests go through the standalone `illuminate/http`
+ * client, logging through PSR-3, and the token refresh lock is a {@see Mutex}.
  */
 class LinearClient
 {
+    protected LoggerInterface $logger;
+
+    protected Mutex $mutex;
+
     public function __construct(
         protected HttpFactory $http,
         protected LinearOAuth $oauth,
-    ) {}
+        protected LinearConfig $config,
+        ?LoggerInterface $logger = null,
+        ?Mutex $mutex = null,
+    ) {
+        $this->logger = $logger ?? new NullLogger;
+        $this->mutex = $mutex ?? new NullMutex;
+    }
 
     /**
      * The authorizing user and their workspace, looked up with a raw
@@ -64,7 +79,7 @@ class LinearClient
      *
      * @throws LinearApiException
      */
-    public function teams(LinearConnection $connection): array
+    public function teams(Connection $connection): array
     {
         $teams = $this->paginate($connection, <<<'GRAPHQL'
             query Teams($after: String) {
@@ -88,7 +103,7 @@ class LinearClient
      *
      * @throws LinearApiException
      */
-    public function teamOptions(LinearConnection $connection, string $teamId): TeamOptions
+    public function teamOptions(Connection $connection, string $teamId): TeamOptions
     {
         $data = $this->query($connection, <<<'GRAPHQL'
             query TeamOptions($teamId: String!) {
@@ -182,7 +197,7 @@ class LinearClient
      *
      * @throws LinearApiException
      */
-    public function createIssue(LinearConnection $connection, string $issueId, IssuePayload $payload): Issue
+    public function createIssue(Connection $connection, string $issueId, IssuePayload $payload): Issue
     {
         $data = $this->query($connection, <<<'GRAPHQL'
             mutation CreateIssue($input: IssueCreateInput!) {
@@ -198,7 +213,7 @@ class LinearClient
      *
      * @throws LinearApiException
      */
-    public function findIssue(LinearConnection $connection, string $id): ?Issue
+    public function findIssue(Connection $connection, string $id): ?Issue
     {
         $issue = $this->find($connection, <<<'GRAPHQL'
             query FindIssue($id: String!) {
@@ -214,7 +229,7 @@ class LinearClient
      *
      * @throws LinearApiException
      */
-    public function createComment(LinearConnection $connection, string $commentId, string $issueId, string $body): Comment
+    public function createComment(Connection $connection, string $commentId, string $issueId, string $body): Comment
     {
         $data = $this->query($connection, <<<'GRAPHQL'
             mutation CreateComment($input: CommentCreateInput!) {
@@ -228,7 +243,7 @@ class LinearClient
     /**
      * @throws LinearApiException
      */
-    public function findComment(LinearConnection $connection, string $id): ?Comment
+    public function findComment(Connection $connection, string $id): ?Comment
     {
         $comment = $this->find($connection, <<<'GRAPHQL'
             query FindComment($id: String!) {
@@ -248,7 +263,7 @@ class LinearClient
      *
      * @throws LinearApiException
      */
-    public function query(LinearConnection $connection, string $query, array $variables = []): array
+    public function query(Connection $connection, string $query, array $variables = []): array
     {
         if (! $connection->isActive()) {
             throw new LinearApiException(
@@ -262,9 +277,9 @@ class LinearClient
         }
 
         try {
-            return $this->send($connection->access_token, $connection->auth_type, $query, $variables);
+            return $this->send($connection->accessToken(), $connection->authMode(), $query, $variables);
         } catch (LinearApiException $e) {
-            if (! $e->requiresReconnect() || blank($connection->refresh_token)) {
+            if (! $e->requiresReconnect() || blank($connection->refreshToken())) {
                 throw $this->recordFailure($connection, $e);
             }
         }
@@ -274,7 +289,7 @@ class LinearClient
         $this->refreshToken($connection);
 
         try {
-            return $this->send($connection->access_token, $connection->auth_type, $query, $variables);
+            return $this->send($connection->accessToken(), $connection->authMode(), $query, $variables);
         } catch (LinearApiException $e) {
             throw $this->recordFailure($connection, $e);
         }
@@ -289,7 +304,7 @@ class LinearClient
      *
      * @throws LinearApiException
      */
-    protected function paginate(LinearConnection $connection, string $query, array $variables, string $path, int $maxPages = 20): array
+    protected function paginate(Connection $connection, string $query, array $variables, string $path, int $maxPages = 20): array
     {
         $nodes = [];
         $after = null;
@@ -317,18 +332,20 @@ class LinearClient
      *
      * @throws LinearApiException
      */
-    protected function refreshToken(LinearConnection $connection): void
+    protected function refreshToken(Connection $connection): void
     {
-        Cache::lock("linear-connection-refresh:{$connection->id}", 30)->block(15, function () use ($connection): void {
-            $previous = $connection->access_token;
-            $connection->refresh();
+        $this->mutex->synchronized("linear-connection-refresh:{$connection->connectionId()}", 30, 15, function () use ($connection): void {
+            $previous = $connection->accessToken();
+            $connection->reload();
 
             // Another worker refreshed while we waited for the lock.
-            if ($connection->access_token !== $previous && ! $connection->tokenExpiresSoon()) {
+            if ($connection->accessToken() !== $previous && ! $connection->tokenExpiresSoon()) {
                 return;
             }
 
-            if (blank($connection->refresh_token)) {
+            $refreshToken = $connection->refreshToken();
+
+            if (blank($refreshToken)) {
                 throw $this->recordFailure($connection, new LinearApiException(
                     'Your Linear authorization has expired. Reconnect Linear to continue.',
                     LinearApiException::AUTHENTICATION,
@@ -336,17 +353,12 @@ class LinearClient
             }
 
             try {
-                $tokens = $this->oauth->refresh((string) $connection->refresh_token);
+                $tokens = $this->oauth->refresh($refreshToken);
             } catch (LinearApiException $e) {
                 throw $this->recordFailure($connection, $e);
             }
 
-            $connection->forceFill([
-                'access_token' => $tokens->accessToken,
-                'refresh_token' => $tokens->refreshToken ?? $connection->refresh_token,
-                'token_expires_at' => $tokens->expiresAt(),
-                'status' => LinearConnectionStatus::Active,
-            ])->save();
+            $connection->storeTokens($tokens);
         });
     }
 
@@ -354,7 +366,7 @@ class LinearClient
      * Persist a failure on the connection so the settings page can show it,
      * flagging authentication failures for reconnection.
      */
-    protected function recordFailure(LinearConnection $connection, LinearApiException $e): LinearApiException
+    protected function recordFailure(Connection $connection, LinearApiException $e): LinearApiException
     {
         if ($e->requiresReconnect()) {
             $connection->markNeedsReconnect($e->getMessage());
@@ -370,7 +382,7 @@ class LinearClient
      *
      * @throws LinearApiException
      */
-    protected function find(LinearConnection $connection, string $query, string $id, string $field): ?array
+    protected function find(Connection $connection, string $query, string $id, string $field): ?array
     {
         try {
             $data = $this->query($connection, $query, ['id' => $id]);
@@ -414,11 +426,11 @@ class LinearClient
     {
         try {
             $response = $this->request($token, $mode)
-                ->post(rtrim(config()->string('linear.api_url'), '/').'/graphql', $variables === []
+                ->post($this->config->apiEndpoint('/graphql'), $variables === []
                     ? ['query' => $query]
                     : ['query' => $query, 'variables' => $variables]);
         } catch (Throwable $e) {
-            Log::warning('Linear API request failed.', ['exception' => $e->getMessage()]);
+            $this->logger->warning('Linear API request failed.', ['exception' => $e->getMessage()]);
 
             throw new LinearApiException('Could not reach Linear. Please try again.', LinearApiException::TRANSIENT);
         }
@@ -465,7 +477,7 @@ class LinearClient
         $type = strtolower(Json::string(data_get($error, 'extensions.type')));
         $message = Json::nullableString(data_get($error, 'extensions.userPresentableMessage')) ?? Json::string($error['message'] ?? null);
 
-        Log::warning('Linear API returned an error.', [
+        $this->logger->warning('Linear API returned an error.', [
             'status' => $response->status(),
             'code' => $code,
             'message' => $error['message'] ?? null,
