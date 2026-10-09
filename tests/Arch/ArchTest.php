@@ -126,10 +126,11 @@ const LINEAR_CORE = [
     'Dniccum\Linear\Data',
 ];
 
-arch('the core does not use Laravel, Carbon or the Laravel adapter')
+// Illuminate itself is covered by the "only depends on PHP and PSR" test below:
+// banning the bare vendor namespace crashes older releases of the arch plugin.
+arch('the core does not use Carbon or the Laravel adapter')
     ->expect(LINEAR_CORE)
     ->not->toUse([
-        'Illuminate',
         'Laravel',
         'Carbon',
         'Spatie',
