@@ -20,6 +20,7 @@ use Dniccum\Linear\Enums\LinearAuthMode;
 use Dniccum\Linear\Exceptions\LinearApiException;
 use Dniccum\Linear\LinearConfig;
 use Dniccum\Linear\Services\LinearClient;
+use Illuminate\Http\Client\Factory as HttpFactory;
 
 /**
  * An in-memory {@see LinearClient}: it records every call, answers from canned
@@ -72,9 +73,9 @@ final class FakeLinearClient extends LinearClient
      */
     private array $failures = [];
 
-    public function __construct(FakeLinearOAuth $oauth, ?LinearConfig $config = null)
+    public function __construct(FakeLinearOAuth $oauth, ?LinearConfig $config = null, ?HttpFactory $http = null)
     {
-        parent::__construct(new NullTransport, $oauth, $config ?? new LinearConfig);
+        parent::__construct($http ?? (new HttpFactory)->preventStrayRequests(), $oauth, $config ?? new LinearConfig);
 
         $this->teams = [new Team('team-1', 'Support', 'SUP', '#5e6ad2', '🛟')];
         $this->viewer = new Viewer('viewer-1', 'Ada Lovelace', 'ada@example.com', new Organization('org-1', 'Acme', 'acme'));

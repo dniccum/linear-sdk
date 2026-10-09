@@ -4,8 +4,7 @@ declare(strict_types=1);
 
 namespace Dniccum\Linear\Data;
 
-use DateTimeImmutable;
-use DateTimeInterface;
+use Carbon\CarbonImmutable;
 use Dniccum\Linear\Support\Json;
 
 /**
@@ -43,19 +42,9 @@ final readonly class Tokens
         );
     }
 
-    /**
-     * When the access token expires, counted from $now (the current time by
-     * default); null for tokens that never expire.
-     */
-    public function expiresAt(?DateTimeInterface $now = null): ?DateTimeImmutable
+    public function expiresAt(): ?CarbonImmutable
     {
-        if ($this->expiresIn === null) {
-            return null;
-        }
-
-        $start = $now === null ? new DateTimeImmutable : DateTimeImmutable::createFromInterface($now);
-
-        return $start->modify("+{$this->expiresIn} seconds");
+        return $this->expiresIn === null ? null : CarbonImmutable::now()->addSeconds($this->expiresIn);
     }
 
     /**

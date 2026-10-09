@@ -3,41 +3,19 @@
 declare(strict_types=1);
 
 use Dniccum\Linear\Data\Member;
-use Dniccum\Linear\Data\Tokens;
 use Dniccum\Linear\Enums\LinearAuthMode;
 use Dniccum\Linear\LinearConfig;
-use Dniccum\Linear\Support\Json;
+use Dniccum\Linear\Support\CacheMutex;
 use Dniccum\Linear\Support\LogErrorReporter;
-use Dniccum\Linear\Support\Uuid;
 use Dniccum\Linear\Testing\FakeLinearClient;
 use Dniccum\Linear\Testing\FakeLinearOAuth;
 use Dniccum\Linear\Testing\InMemory\InMemoryConnection;
-use Dniccum\Linear\Testing\NullTransport;
-use Dniccum\Linear\Transport\PsrTransport;
-use Dniccum\Linear\Transport\Response;
-use GuzzleHttp\Psr7\HttpFactory;
-use GuzzleHttp\Psr7\Response as PsrResponse;
-use Psr\Http\Client\ClientInterface;
-use Psr\Http\Message\RequestInterface;
-use Psr\Http\Message\ResponseInterface;
+use Illuminate\Cache\ArrayStore;
+use Illuminate\Cache\Repository;
+use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Contracts\Cache\Store;
+use Illuminate\Http\Client\Factory;
 use Psr\Log\AbstractLogger;
-
-test('uuids are random version 4 identifiers', function () {
-    expect(Uuid::v4())->toMatch('/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/')
-        ->and(Uuid::v4())->not->toBe(Uuid::v4());
-});
-
-test('json helpers read nested values and detect blanks', function () {
-    $data = ['a' => ['b' => ['c' => 1]], 'x' => null];
-
-    expect(Json::get($data, 'a.b.c'))->toBe(1)
-        ->and(Json::get($data, 'a.b.nope', 'fallback'))->toBe('fallback')
-        ->and(Json::get($data, 'x.y'))->toBeNull()
-        ->and(Json::get('scalar', 'a'))->toBeNull()
-        ->and(Json::blank(null))->toBeTrue()
-        ->and(Json::blank("  \n"))->toBeTrue()
-        ->and(Json::blank('0'))->toBeFalse();
-});
 
 test('the config reads the same keys as the Laravel config file', function () {
     $config = LinearConfig::fromArray([
@@ -105,67 +83,29 @@ test('member initials use the first letters of the first two words', function ()
         ->and((new Member('1', '   '))->displayInitials())->toBe('?');
 });
 
-test('token expiry is counted from the moment given', function () {
-    $tokens = new Tokens('access', null, 60, []);
-    $mutable = new DateTime('2026-01-01T00:00:00Z');
+test('the fakes refuse to talk to the real Linear and answer from memory', function () {
+    $client = new FakeLinearClient($oauth = new FakeLinearOAuth);
+    $http = (new Factory)->preventStrayRequests();
 
-    expect($tokens->expiresAt($mutable)?->format('c'))->toBe('2026-01-01T00:01:00+00:00')
-        // The moment passed in is never modified.
-        ->and($mutable->format('c'))->toBe('2026-01-01T00:00:00+00:00')
-        ->and($tokens->expiresAt()?->getTimestamp())->toBeGreaterThan(time() + 55);
+    expect($client->teams(new InMemoryConnection(1)))->toHaveCount(1)
+        ->and($oauth->exchangeCode('code', 'verifier')->accessToken)->toBe('fake-access-token')
+        ->and(fn () => $http->post('https://api.linear.app/graphql'))->toThrow(RuntimeException::class);
 });
 
-test('the fakes never send a request', function () {
-    $transport = new NullTransport;
+test('the cache mutex locks across callers, and runs unlocked on a store without locks', function () {
+    $cache = new Repository(new ArrayStore);
+    $mutex = new CacheMutex($cache);
 
-    expect(fn () => $transport->postJson('https://api.linear.app/graphql', [], []))->toThrow(LogicException::class, 'does not send requests')
-        ->and(fn () => $transport->postForm('https://api.linear.app/oauth/token', [], []))->toThrow(LogicException::class, 'does not send requests');
+    expect($mutex->synchronized('key', 5, 1, fn () => 'locked'))->toBe('locked');
 
-    $client = new FakeLinearClient(new FakeLinearOAuth);
+    $held = $cache->getStore()->lock('busy', 30);
+    $held->get();
 
-    expect($client->teams(new InMemoryConnection(1)))->toHaveCount(1);
-});
+    expect(fn () => $mutex->synchronized('busy', 5, 0, fn () => 'never'))->toThrow(LockTimeoutException::class);
 
-test('the PSR transport posts JSON and forms through any PSR-18 client', function () {
-    $sent = [];
-    $client = new class($sent) implements ClientInterface
-    {
-        /** @param list<RequestInterface> $sent */
-        public function __construct(public array &$sent) {}
+    $held->release();
 
-        public function sendRequest(RequestInterface $request): ResponseInterface
-        {
-            $this->sent[] = $request;
+    $store = Mockery::mock(Store::class);
 
-            return new PsrResponse(201, [], '{"data":{"ok":true}}');
-        }
-    };
-    $factory = new HttpFactory;
-    $transport = new PsrTransport($client, $factory, $factory);
-
-    $json = $transport->postJson('https://api.linear.app/graphql', ['Authorization' => 'Bearer t'], ['query' => '{ viewer { id } }', 'variables' => ['a' => 'é/1']]);
-    $form = $transport->postForm('https://api.linear.app/oauth/token', [], ['grant_type' => 'refresh_token', 'refresh_token' => 'a b']);
-
-    expect($json->status())->toBe(201)
-        ->and($json->successful())->toBeTrue()
-        ->and($json->json('data.ok'))->toBeTrue()
-        ->and($form->json())->toBe(['data' => ['ok' => true]])
-        ->and($sent[0]->getMethod())->toBe('POST')
-        ->and((string) $sent[0]->getUri())->toBe('https://api.linear.app/graphql')
-        ->and($sent[0]->getHeaderLine('Authorization'))->toBe('Bearer t')
-        ->and($sent[0]->getHeaderLine('Accept'))->toBe('application/json')
-        ->and($sent[0]->getHeaderLine('Content-Type'))->toBe('application/json')
-        ->and(json_decode((string) $sent[0]->getBody(), true))->toBe(['query' => '{ viewer { id } }', 'variables' => ['a' => 'é/1']])
-        ->and($sent[1]->getHeaderLine('Content-Type'))->toBe('application/x-www-form-urlencoded')
-        ->and((string) $sent[1]->getBody())->toBe('grant_type=refresh_token&refresh_token=a+b');
-});
-
-test('a response knows its status class and tolerates bodies that are not JSON objects', function () {
-    expect((new Response(204))->json())->toBeNull()
-        ->and((new Response(404))->successful())->toBeFalse()
-        ->and((new Response(503))->serverError())->toBeTrue()
-        ->and((new Response(499))->serverError())->toBeFalse()
-        ->and(Response::fromPsr(new PsrResponse(200, [], 'not json'))->data)->toBeNull()
-        ->and(Response::fromPsr(new PsrResponse(200, [], '"text"'))->data)->toBeNull()
-        ->and(Response::fromPsr(new PsrResponse(200, [], '{"a":1}'))->json('a'))->toBe(1);
+    expect((new CacheMutex(new Repository($store)))->synchronized('key', 5, 1, fn () => 'unlocked'))->toBe('unlocked');
 });

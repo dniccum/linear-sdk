@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Dniccum\Linear\Contracts\Connection;
+use Dniccum\Linear\Contracts\Mutex;
 use Dniccum\Linear\Contracts\SyncQueue;
 use Dniccum\Linear\Data\Destination;
 use Dniccum\Linear\Data\Issue;
@@ -18,9 +19,6 @@ use Dniccum\Linear\Jobs\DeliverLinearComment;
 use Dniccum\Linear\Laravel\Casts\IssuePayloadCast;
 use Dniccum\Linear\Laravel\EloquentStore;
 use Dniccum\Linear\Laravel\EloquentSync;
-use Dniccum\Linear\Laravel\HttpClientException;
-use Dniccum\Linear\Laravel\IlluminateHttpClient;
-use Dniccum\Linear\Laravel\LaravelMutex;
 use Dniccum\Linear\Laravel\ModelOwner;
 use Dniccum\Linear\LinearConfig;
 use Dniccum\Linear\LinearServiceProvider;
@@ -32,13 +30,7 @@ use Dniccum\Linear\Services\LinearClient;
 use Dniccum\Linear\Testing\InMemory\InMemoryIssueLink;
 use Dniccum\Linear\Testing\InMemory\InMemoryOwner;
 use Dniccum\Linear\Testing\InMemory\InMemorySource;
-use GuzzleHttp\Psr7\Request as PsrRequest;
-use Illuminate\Cache\Repository;
-use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Cache\LockTimeoutException;
-use Illuminate\Contracts\Cache\Store;
-use Illuminate\Http\Client\ConnectionException;
-use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
@@ -57,51 +49,7 @@ use Workbench\App\Models\User;
 |
 */
 
-test('the PSR-18 bridge sends JSON through the Laravel HTTP client, so Http::fake() applies', function () {
-    Http::fake(['api.linear.app/*' => Http::response(['data' => ['ok' => true]], 201)]);
-    $client = new IlluminateHttpClient(app(Factory::class), timeout: 7);
-
-    $response = $client->sendRequest(
-        (new PsrRequest('POST', 'https://api.linear.app/graphql', ['Authorization' => 'Bearer t', 'Content-Type' => 'application/json', 'Host' => 'api.linear.app'], json_encode(['query' => 'x', 'variables' => ['a' => 1]], JSON_THROW_ON_ERROR))),
-    );
-
-    expect($response->getStatusCode())->toBe(201)
-        ->and(json_decode((string) $response->getBody(), true))->toBe(['data' => ['ok' => true]]);
-
-    Http::assertSent(fn (Request $request) => $request->url() === 'https://api.linear.app/graphql'
-        && $request->method() === 'POST'
-        && $request->hasHeader('Authorization', 'Bearer t')
-        && $request->isJson()
-        && $request['variables'] === ['a' => 1]);
-});
-
-test('the PSR-18 bridge sends forms as forms and anything else as a raw body', function () {
-    Http::fake();
-    $client = new IlluminateHttpClient(app(Factory::class));
-
-    $client->sendRequest(new PsrRequest('POST', 'https://api.linear.app/oauth/token', ['Content-Type' => 'application/x-www-form-urlencoded'], 'grant_type=refresh_token&refresh_token=a+b'));
-    $client->sendRequest(new PsrRequest('POST', 'https://api.linear.app/raw', ['Content-Type' => 'text/plain'], 'hello'));
-    $client->sendRequest(new PsrRequest('POST', 'https://api.linear.app/untyped', [], 'bytes'));
-    $client->sendRequest(new PsrRequest('POST', 'https://api.linear.app/notjson', ['Content-Type' => 'application/json'], 'not json'));
-
-    Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/oauth/token')
-        && $request->isForm()
-        && $request['grant_type'] === 'refresh_token'
-        && $request['refresh_token'] === 'a b');
-    Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/raw') && $request->body() === 'hello' && $request->hasHeader('Content-Type', 'text/plain'));
-    Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/untyped') && $request->body() === 'bytes' && $request->hasHeader('Content-Type', 'application/octet-stream'));
-    Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/notjson') && $request->body() === 'not json');
-});
-
-test('the PSR-18 bridge reports failures as PSR-18 client exceptions', function () {
-    Http::fake(fn () => throw new ConnectionException('cURL error 28: timed out'));
-    $client = new IlluminateHttpClient(app(Factory::class));
-
-    expect(fn () => $client->sendRequest(new PsrRequest('POST', 'https://api.linear.app/graphql', ['Content-Type' => 'application/json'], '{}')))
-        ->toThrow(HttpClientException::class, 'timed out');
-});
-
-test('the Laravel transport is the one the container hands the client', function () {
+test('the container hands the client the Laravel HTTP client, so Http::fake() applies', function () {
     config(['linear.api_url' => 'https://proxy.test/']);
     Http::fake(['proxy.test/*' => Http::response(['data' => ['viewer' => ['id' => 'u', 'name' => 'Ada', 'email' => 'a@x.test', 'organization' => ['id' => 'o', 'name' => 'Acme', 'urlKey' => 'acme']]]])]);
 
@@ -127,22 +75,12 @@ test('the configuration is read from the Laravel config on every resolution', fu
         ->and($second->redirectUri)->toBe('https://app.test/cb');
 });
 
-test('the mutex takes a cache lock, or runs unlocked when the store has none', function () {
-    expect(app(LaravelMutex::class)->synchronized('key', 5, 1, fn () => 'locked'))->toBe('locked');
-
-    $store = Mockery::mock(Store::class);
-    $cache = Mockery::mock(CacheFactory::class);
-    $cache->shouldReceive('store')->andReturn(new Repository($store));
-
-    expect((new LaravelMutex($cache))->synchronized('key', 5, 1, fn () => 'unlocked'))->toBe('unlocked');
-});
-
-test('the lock really excludes: a held lock times out the next worker', function () {
+test('the container binds the cache mutex to the default cache store: a held lock times out the next worker', function () {
     $lock = Cache::lock('linear-test-lock', 30);
     $lock->get();
 
     try {
-        expect(fn () => app(LaravelMutex::class)->synchronized('linear-test-lock', 5, 0, fn () => 'never'))
+        expect(fn () => app(Mutex::class)->synchronized('linear-test-lock', 5, 0, fn () => 'never'))
             ->toThrow(LockTimeoutException::class);
     } finally {
         $lock->release();

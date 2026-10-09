@@ -96,15 +96,16 @@ arch('the domain does not depend on the HTTP layer')
 | Framework independence
 |--------------------------------------------------------------------------
 |
-| The core must run in any PHP application: it may use PSR interfaces and
-| nothing from Laravel, Carbon or the Laravel adapter. Everything that
-| touches Laravel lives in the Laravel adapter list below.
+| The core must run in any PHP application. It builds on the standalone
+| Illuminate packages (support, contracts, http) and Carbon, plus PSR
+| interfaces, but nothing that needs a Laravel application: no facades, no
+| container helpers such as config() or app() (the allow-list below names every
+| class and function the core may use), and nothing from the Laravel adapter. Everything that does needs Laravel lives in the adapter.
 |
 */
 
 const LINEAR_CORE = [
     'Dniccum\Linear\Contracts',
-    'Dniccum\Linear\Transport',
     'Dniccum\Linear\Enums',
     'Dniccum\Linear\Events',
     'Dniccum\Linear\Exceptions',
@@ -116,24 +117,18 @@ const LINEAR_CORE = [
     'Dniccum\Linear\Services\ConnectionClient',
     'Dniccum\Linear\Support\Json',
     'Dniccum\Linear\Support\Emoji',
-    'Dniccum\Linear\Support\Uuid',
     'Dniccum\Linear\Support\NullMutex',
+    'Dniccum\Linear\Support\CacheMutex',
     'Dniccum\Linear\Support\LogErrorReporter',
     'Dniccum\Linear\Testing\InMemory',
     'Dniccum\Linear\Testing\FakeLinearClient',
     'Dniccum\Linear\Testing\FakeLinearOAuth',
-    'Dniccum\Linear\Testing\NullTransport',
     'Dniccum\Linear\Data',
 ];
 
-// Illuminate itself is covered by the "only depends on PHP and PSR" test below:
-// banning the bare vendor namespace crashes older releases of the arch plugin.
-arch('the core does not use Carbon or the Laravel adapter')
+arch('the core does not use the Laravel adapter')
     ->expect(LINEAR_CORE)
     ->not->toUse([
-        'Laravel',
-        'Carbon',
-        'Spatie',
         'Dniccum\Linear\Laravel',
         'Dniccum\Linear\Models',
         'Dniccum\Linear\Http',
@@ -155,15 +150,28 @@ arch('the core does not use Carbon or the Laravel adapter')
         'Dniccum\Linear\Data\OAuthResult',
     ]);
 
-arch('the core only depends on PHP and PSR interfaces')
+// An allow-list rather than a ban on "Illuminate": it names exactly the
+// standalone pieces the core may use, so a facade, Eloquent or Foundation class
+// fails the build. (Banning the whole vendor namespace also crashes older
+// releases of the arch plugin.)
+arch('the core only uses standalone packages, PSR interfaces and PHP')
     ->expect(LINEAR_CORE)
     ->toOnlyUse([
         'Dniccum\Linear',
-        'Psr\Http\Client',
-        'Psr\Http\Message',
+        'Carbon\CarbonImmutable',
+        'Illuminate\Support\Str',
+        'Illuminate\Support\Arr',
+        'Illuminate\Contracts\Support\Arrayable',
+        'Illuminate\Contracts\Cache\Repository',
+        'Illuminate\Contracts\Cache\LockProvider',
+        'Illuminate\Http\Client',
         'Psr\EventDispatcher',
         'Psr\Log',
         'PHPUnit',
+        // Helper functions that ship with illuminate/support.
+        'blank',
+        'filled',
+        'data_get',
     ])
     ->ignoring([
         'Dniccum\Linear\Data\Settings',

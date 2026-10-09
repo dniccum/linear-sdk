@@ -10,6 +10,7 @@ use Dniccum\Linear\Contracts\IssueSource;
 use Dniccum\Linear\Services\IssueComposer;
 use Dniccum\Linear\Support\ModelHooks;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Arr;
 
 /**
  * An Eloquent model that uses {@see CreatesLinearIssues}, as an
@@ -64,13 +65,6 @@ final readonly class ModelSource implements IssueSource
 
     public function changes(): array
     {
-        $changes = $this->model->getChanges();
-        $updatedAt = $this->model->getUpdatedAtColumn();
-
-        if ($updatedAt !== null) {
-            unset($changes[$updatedAt]);
-        }
-
-        return $changes;
+        return Arr::except($this->model->getChanges(), array_values(array_filter([$this->model->getUpdatedAtColumn()], fn (?string $column): bool => $column !== null)));
     }
 }

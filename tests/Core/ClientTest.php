@@ -12,37 +12,54 @@ use Dniccum\Linear\Services\LinearClient;
 use Dniccum\Linear\Services\LinearOAuth;
 use Dniccum\Linear\Support\NullMutex;
 use Dniccum\Linear\Testing\InMemory\InMemoryConnection;
-use Dniccum\Linear\Tests\Core\Support\ScriptedTransport;
-use Dniccum\Linear\Transport\Response;
+use Dniccum\Linear\Tests\Core\Support\ScriptedHttp;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\Factory;
+use Illuminate\Http\Client\Request;
 
 /*
 |--------------------------------------------------------------------------
 | The API client, with no framework
 |--------------------------------------------------------------------------
+|
+| Illuminate's HTTP client runs standalone, so these tests talk to a plain
+| `new Factory` with scripted answers. No application is booted.
+|
 */
 
+/**
+ * The requests the scripted HTTP client received, in order.
+ *
+ * @return list<Request>
+ */
+function sentRequests(Factory $http): array
+{
+    return $http->recorded()->map(fn (array $pair): Request => $pair[0])->values()->all();
+}
+
 test('requests carry the credential in the form the auth mode needs', function () {
-    $client = scriptedClient([ScriptedTransport::data(['viewer' => ['id' => 'u', 'name' => 'Ada', 'email' => 'ada@x.test', 'organization' => ['id' => 'o', 'name' => 'Acme', 'urlKey' => 'acme']]])], $transport);
+    $client = scriptedClient([ScriptedHttp::data(['viewer' => ['id' => 'u', 'name' => 'Ada', 'email' => 'ada@x.test', 'organization' => ['id' => 'o', 'name' => 'Acme', 'urlKey' => 'acme']]])], $http);
 
     $viewer = $client->viewer('lin_oauth');
     $client->viewer('lin_api_key', LinearAuthMode::ApiKey);
+    [$oauth, $apiKey] = sentRequests($http);
 
     expect($viewer->organization->name)->toBe('Acme')
-        ->and($transport->requests[0]['url'])->toBe('https://api.linear.app/graphql')
-        ->and($transport->requests[0]['headers'])->toBe(['Authorization' => 'Bearer lin_oauth'])
-        ->and($transport->requests[0]['form'])->toBeFalse()
-        ->and($transport->requests[1]['headers'])->toBe(['Authorization' => 'lin_api_key'])
-        ->and($transport->requests[0]['body'])->toHaveKey('query')->not->toHaveKey('variables');
+        ->and($oauth->url())->toBe('https://api.linear.app/graphql')
+        ->and($oauth->header('Authorization'))->toBe(['Bearer lin_oauth'])
+        ->and($oauth->isJson())->toBeTrue()
+        ->and($oauth->data())->toHaveKey('query')->not->toHaveKey('variables')
+        ->and($apiKey->header('Authorization'))->toBe(['lin_api_key']);
 });
 
 test('issues and comments are created with client generated ids and looked up by id', function () {
     $client = scriptedClient([
-        ScriptedTransport::data(['issueCreate' => ['success' => true, 'issue' => ['id' => 'issue-1', 'identifier' => 'SUP-1', 'url' => 'https://linear.app/i/SUP-1']]]),
-        ScriptedTransport::data(['issue' => ['id' => 'issue-1', 'identifier' => 'SUP-1', 'url' => 'https://linear.app/i/SUP-1']]),
-        new Response(200, ['data' => null, 'errors' => [['message' => 'Entity not found: Issue', 'extensions' => ['type' => 'invalid input']]]]),
-        ScriptedTransport::data(['commentCreate' => ['success' => true, 'comment' => ['id' => 'c-1', 'url' => 'https://linear.app/c/1']]]),
-        ScriptedTransport::data(['comment' => ['id' => 'c-1', 'url' => 'https://linear.app/c/1']]),
-    ], $transport);
+        ScriptedHttp::data(['issueCreate' => ['success' => true, 'issue' => ['id' => 'issue-1', 'identifier' => 'SUP-1', 'url' => 'https://linear.app/i/SUP-1']]]),
+        ScriptedHttp::data(['issue' => ['id' => 'issue-1', 'identifier' => 'SUP-1', 'url' => 'https://linear.app/i/SUP-1']]),
+        Factory::response(['data' => null, 'errors' => [['message' => 'Entity not found: Issue', 'extensions' => ['type' => 'invalid input']]]]),
+        ScriptedHttp::data(['commentCreate' => ['success' => true, 'comment' => ['id' => 'c-1', 'url' => 'https://linear.app/c/1']]]),
+        ScriptedHttp::data(['comment' => ['id' => 'c-1', 'url' => 'https://linear.app/c/1']]),
+    ], $http);
     $connection = new InMemoryConnection(1);
 
     $issue = $client->createIssue($connection, 'issue-1', new IssuePayload(new Destination('team-1', priority: 2), 'Title', 'Body'));
@@ -56,11 +73,11 @@ test('issues and comments are created with client generated ids and looked up by
         ->and($missing)->toBeNull()
         ->and($comment->id)->toBe('c-1')
         ->and($foundComment?->id)->toBe('c-1')
-        ->and($transport->requests[0]['body']['variables']['input'])->toBe(['id' => 'issue-1', 'teamId' => 'team-1', 'title' => 'Title', 'description' => 'Body', 'priority' => 2]);
+        ->and(sentRequests($http)[0]->data()['variables']['input'])->toBe(['id' => 'issue-1', 'teamId' => 'team-1', 'title' => 'Title', 'description' => 'Body', 'priority' => 2]);
 });
 
-test('failures are classified so callers know whether to retry', function (Response|Throwable $answer, string $reason, bool $reconnect) {
-    $client = scriptedClient([$answer], $transport);
+test('failures are classified so callers know whether to retry', function (Closure $answer, string $reason, bool $reconnect) {
+    $client = scriptedClient([$answer()]);
     $connection = new InMemoryConnection(1);
 
     try {
@@ -72,21 +89,21 @@ test('failures are classified so callers know whether to retry', function (Respo
             ->and($connection->isActive())->toBe(! $reconnect);
     }
 })->with([
-    'network failure' => [fn () => new RuntimeException('connection reset'), LinearApiException::TRANSIENT, false],
-    'rejected credentials' => [new Response(401, null), LinearApiException::AUTHENTICATION, true],
-    'authentication error' => [new Response(200, ['errors' => [['message' => 'x', 'extensions' => ['code' => 'AUTHENTICATION_ERROR']]]]), LinearApiException::AUTHENTICATION, true],
-    'forbidden' => [new Response(200, ['errors' => [['message' => 'No', 'extensions' => ['code' => 'FORBIDDEN', 'userPresentableMessage' => 'Nope']]]]), LinearApiException::FORBIDDEN, false],
-    'rate limited' => [new Response(429, null), LinearApiException::RATE_LIMITED, false],
-    'server error' => [new Response(503, null), LinearApiException::TRANSIENT, false],
-    'invalid input' => [new Response(200, ['errors' => [['message' => 'Bad input']]]), LinearApiException::INVALID_REQUEST, false],
-    'no data' => [new Response(200, ['data' => 'nope']), LinearApiException::TRANSIENT, false],
+    'network failure' => [fn () => new ConnectionException('connection reset'), LinearApiException::TRANSIENT, false],
+    'rejected credentials' => [fn () => Factory::response(null, 401), LinearApiException::AUTHENTICATION, true],
+    'authentication error' => [fn () => Factory::response(['errors' => [['message' => 'x', 'extensions' => ['code' => 'AUTHENTICATION_ERROR']]]]), LinearApiException::AUTHENTICATION, true],
+    'forbidden' => [fn () => Factory::response(['errors' => [['message' => 'No', 'extensions' => ['code' => 'FORBIDDEN', 'userPresentableMessage' => 'Nope']]]]), LinearApiException::FORBIDDEN, false],
+    'rate limited' => [fn () => Factory::response(null, 429), LinearApiException::RATE_LIMITED, false],
+    'server error' => [fn () => Factory::response(null, 503), LinearApiException::TRANSIENT, false],
+    'invalid input' => [fn () => Factory::response(['errors' => [['message' => 'Bad input']]]), LinearApiException::INVALID_REQUEST, false],
+    'no data' => [fn () => Factory::response(['data' => 'nope']), LinearApiException::TRANSIENT, false],
 ]);
 
 test('an expiring token is refreshed under the mutex, and only once', function () {
     $config = new LinearConfig(clientId: 'id', clientSecret: 'secret');
-    $transport = new ScriptedTransport([
-        new Response(200, ['access_token' => 'new-access', 'refresh_token' => 'new-refresh', 'expires_in' => 3600]),
-        ScriptedTransport::data(['teams' => ['nodes' => [['id' => 't1', 'name' => 'Support', 'key' => 'SUP']], 'pageInfo' => ['hasNextPage' => false, 'endCursor' => null]]]),
+    $http = ScriptedHttp::make([
+        Factory::response(['access_token' => 'new-access', 'refresh_token' => 'new-refresh', 'expires_in' => 3600]),
+        ScriptedHttp::data(['teams' => ['nodes' => [['id' => 't1', 'name' => 'Support', 'key' => 'SUP']], 'pageInfo' => ['hasNextPage' => false, 'endCursor' => null]]]),
     ]);
     $locks = [];
     $mutex = new class($locks) implements Mutex
@@ -101,23 +118,24 @@ test('an expiring token is refreshed under the mutex, and only once', function (
             return $callback();
         }
     };
-    $client = new LinearClient($transport, new LinearOAuth($transport, $config), $config, null, $mutex);
+    $client = new LinearClient($http, new LinearOAuth($http, $config), $config, null, $mutex);
     $connection = new InMemoryConnection(1, token: 'old', refresh: 'old-refresh', expiresAt: new DateTimeImmutable('+1 minute'));
 
     $teams = $client->teams($connection);
+    [$refresh, $teamsRequest] = sentRequests($http);
 
     expect($teams[0]->key)->toBe('SUP')
         ->and($locks)->toBe([['linear-connection-refresh:1', 30, 15]])
         ->and($connection->token)->toBe('new-access')
         ->and($connection->refresh)->toBe('new-refresh')
-        ->and($transport->requests[0]['url'])->toBe('https://api.linear.app/oauth/token')
-        ->and($transport->requests[0]['form'])->toBeTrue()
-        ->and($transport->requests[0]['body'])->toMatchArray(['grant_type' => 'refresh_token', 'refresh_token' => 'old-refresh', 'client_id' => 'id'])
-        ->and($transport->requests[1]['headers'])->toBe(['Authorization' => 'Bearer new-access']);
+        ->and($refresh->url())->toBe('https://api.linear.app/oauth/token')
+        ->and($refresh->isForm())->toBeTrue()
+        ->and($refresh->data())->toMatchArray(['grant_type' => 'refresh_token', 'refresh_token' => 'old-refresh', 'client_id' => 'id'])
+        ->and($teamsRequest->header('Authorization'))->toBe(['Bearer new-access']);
 });
 
 test('a connection that cannot refresh is flagged for reconnection', function () {
-    $client = scriptedClient([new Response(400, ['error' => 'invalid_grant'])], $transport);
+    $client = scriptedClient([Factory::response(['error' => 'invalid_grant'], 400)]);
     $noRefresh = new InMemoryConnection(1, expiresAt: new DateTimeImmutable('-1 minute'));
     $stale = new InMemoryConnection(2, refresh: 'dead', expiresAt: new DateTimeImmutable('-1 minute'));
 
@@ -130,12 +148,12 @@ test('a connection that cannot refresh is flagged for reconnection', function ()
 
 test('a token revoked early is refreshed and the request retried once', function () {
     $config = new LinearConfig(clientId: 'id', clientSecret: 'secret');
-    $transport = new ScriptedTransport([
-        new Response(401, null),
-        new Response(200, ['access_token' => 'rotated']),
-        ScriptedTransport::data(['teams' => ['nodes' => [], 'pageInfo' => ['hasNextPage' => false, 'endCursor' => null]]]),
+    $http = ScriptedHttp::make([
+        Factory::response(null, 401),
+        Factory::response(['access_token' => 'rotated']),
+        ScriptedHttp::data(['teams' => ['nodes' => [], 'pageInfo' => ['hasNextPage' => false, 'endCursor' => null]]]),
     ]);
-    $client = new LinearClient($transport, new LinearOAuth($transport, $config), $config);
+    $client = new LinearClient($http, new LinearOAuth($http, $config), $config);
     $connection = new InMemoryConnection(1, token: 'revoked', refresh: 'refresh', expiresAt: new DateTimeImmutable('+1 day'));
 
     expect($client->teams($connection))->toBe([])
@@ -145,12 +163,12 @@ test('a token revoked early is refreshed and the request retried once', function
 
 test('the OAuth helper builds the PKCE authorization URL and exchanges codes', function () {
     $config = new LinearConfig(clientId: 'id', clientSecret: 'secret', redirectUri: 'https://app.test/callback', scopes: ['read', 'issues:create']);
-    $transport = new ScriptedTransport([
-        new Response(200, ['access_token' => 'at', 'refresh_token' => 'rt', 'expires_in' => 60, 'scope' => 'read,issues:create']),
-        new Response(500, null),
-        new RuntimeException('down'),
+    $http = ScriptedHttp::make([
+        Factory::response(['access_token' => 'at', 'refresh_token' => 'rt', 'expires_in' => 60, 'scope' => 'read,issues:create']),
+        Factory::response(null, 500),
+        new ConnectionException('down'),
     ]);
-    $oauth = new LinearOAuth($transport, $config);
+    $oauth = new LinearOAuth($http, $config);
 
     parse_str(parse_url($oauth->authorizationUrl('state-1', 'verifier'), PHP_URL_QUERY) ?: '', $query);
     $tokens = $oauth->exchangeCode('code-1', 'verifier');
@@ -162,21 +180,22 @@ test('the OAuth helper builds the PKCE authorization URL and exchanges codes', f
             'state' => 'state-1', 'code_challenge' => LinearOAuth::codeChallenge('verifier'), 'code_challenge_method' => 'S256', 'prompt' => 'consent',
         ])
         ->and($tokens->accessToken)->toBe('at')
-        ->and($transport->requests[0]['body'])->toMatchArray(['grant_type' => 'authorization_code', 'code' => 'code-1', 'redirect_uri' => 'https://app.test/callback', 'code_verifier' => 'verifier'])
+        ->and($tokens->expiresAt()?->isFuture())->toBeTrue()
+        ->and(sentRequests($http)[0]->data())->toMatchArray(['grant_type' => 'authorization_code', 'code' => 'code-1', 'redirect_uri' => 'https://app.test/callback', 'code_verifier' => 'verifier'])
         ->and(fn () => $oauth->refresh('rt'))->toThrow(LinearApiException::class, 'temporarily unavailable')
         ->and(fn () => $oauth->refresh('rt'))->toThrow(LinearApiException::class, 'Could not reach')
         ->and($oauth->revoke('at'))->toBeFalse();
 });
 
 test('the OAuth helper needs its settings', function () {
-    $oauth = new LinearOAuth(new ScriptedTransport, new LinearConfig);
+    $oauth = new LinearOAuth(ScriptedHttp::make([Factory::response([])]), new LinearConfig);
 
     expect($oauth->isConfigured())->toBeFalse()
         ->and(fn () => $oauth->redirectUri())->toThrow(LogicException::class, 'redirect URI');
 });
 
 test('revoking reports whether Linear accepted the token', function () {
-    $oauth = new LinearOAuth(new ScriptedTransport([new Response(200, [])]), new LinearConfig);
+    $oauth = new LinearOAuth(ScriptedHttp::make([Factory::response([])]), new LinearConfig);
 
     expect($oauth->revoke('token'))->toBeTrue();
 });

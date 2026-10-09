@@ -12,7 +12,7 @@
 
 Create [Linear](https://linear.app) issues from your application's records. In **Laravel** it works the way Laravel Spark handles billing: add a trait to an Eloquent model, let your users connect their Linear workspace on a ready-made configuration page, and issues are created for you from the model's lifecycle events. In **Symfony and any other PHP framework** you get the same API client, OAuth flow and idempotent, retrying sync, wired to your own storage and queue (see [Framework support](#framework-support)).
 
-- **Framework-agnostic core**: the Linear API client, OAuth 2.0 with PKCE, typed DTOs and the issue/comment sync depend only on PHP and PSR interfaces (PSR-18 HTTP, PSR-3 logging, PSR-14 events). Laravel is optional.
+- **Framework-agnostic core**: the Linear API client, OAuth 2.0 with PKCE, typed DTOs and the issue/comment sync are built on the standalone Illuminate packages (`support`, `http`, `cache`, `contracts`) and Carbon, plus PSR-3 logging and PSR-14 events. They need Laravel's components, not a Laravel application.
 - **First-class Laravel integration**: service provider, `Linear` facade, Eloquent models, queued jobs, `Linear::fake()` and the configuration page. Existing Laravel applications keep working as they are (see [UPGRADING](UPGRADING.md) for the few internals that moved).
 - **Model traits** (Laravel) that add Linear attributes (`linear_issue_url`, `linear_issue_identifier`, `linear_sync_status`) and tie issue creation to `created`, `updated` and `deleted`.
 - **Optional configuration page** (Laravel only) with your own branding: connect (OAuth 2.0 with PKCE, or a personal API key), pick the team, project, status, labels, priority and assignee, and choose automatic or manual sending. Don't want it? Turn it off and build your own UI on the headless [Actions](#building-your-own-ui).
@@ -23,12 +23,12 @@ Create [Linear](https://linear.app) issues from your application's records. In *
 
 - PHP 8.3 or 8.4
 - **For the Laravel integration:** Laravel 12 or 13
-- **For everything else (Symfony, Slim, plain PHP, ...):** a PSR-18 HTTP client and PSR-17 factories, for example `symfony/http-client` with `nyholm/psr7`
+- **For everything else (Symfony, Slim, plain PHP, ...):** nothing extra. The HTTP client (`illuminate/http`, which uses Guzzle) is installed with the package
 - A Linear workspace, plus either a [Linear OAuth application](https://linear.app/settings/api/applications) or personal API keys
 
 ## Framework support
 
-Laravel is **not** a dependency of this package: `composer require dniccum/linear-sdk` installs only PHP and the PSR interfaces. Everything Laravel-specific is an adapter that activates when Laravel is present.
+The Laravel **framework** is not a dependency of this package. `composer require dniccum/linear-sdk` installs the standalone Illuminate components the core is built on (`illuminate/support`, `illuminate/http`, `illuminate/cache`, `illuminate/contracts`, ...) and Carbon, which work in any PHP application. Everything that needs a Laravel application (routes, Eloquent models, queued jobs, Blade, the facade) is an adapter that activates when Laravel is present.
 
 | | Laravel | Symfony / other frameworks |
 |---|:-:|:-:|
@@ -59,14 +59,12 @@ use Dniccum\Linear\Data\IssuePayload;
 use Dniccum\Linear\LinearConfig;
 use Dniccum\Linear\Services\LinearClient;
 use Dniccum\Linear\Services\LinearOAuth;
-use Dniccum\Linear\Transport\PsrTransport;
 
-// Any PSR-18 client plus PSR-17 factories. Symfony's Psr18Client is both.
-$psr18 = new Symfony\Component\HttpClient\Psr18Client(Symfony\Component\HttpClient\HttpClient::create(['timeout' => 15]));
-$transport = new PsrTransport($psr18, $psr18, $psr18);
+// Illuminate's standalone HTTP client; no application needed.
+$http = new Illuminate\Http\Client\Factory;
 
 $config = new LinearConfig(clientId: '...', clientSecret: '...', redirectUri: 'https://app.test/linear/callback');
-$client = new LinearClient($transport, new LinearOAuth($transport, $config), $config);
+$client = new LinearClient($http, new LinearOAuth($http, $config), $config);
 
 $teams = $client->teams($connection);   // $connection implements Dniccum\Linear\Contracts\Connection
 $issue = $client->createIssue($connection, $issueId, new IssuePayload(new Destination($teams[0]->id), 'Title', 'Markdown body'));
@@ -406,7 +404,7 @@ composer check          # pint, phpstan (level 9), pest with 100% coverage
 npm run typecheck && npm run lint && npm run test:coverage
 ```
 
-CI runs the PHP suite on PHP 8.3/8.4 × Laravel 12/13 × lowest/stable on Linux and Windows, a separate job that installs the package **without Laravel** and files an issue through Symfony's HTTP client (`tests/Standalone/smoke.php`), plus PHPStan, Pint and the frontend checks. An architecture test fails the build if the core ever touches Laravel.
+CI runs the PHP suite on PHP 8.3/8.4 × Laravel 12/13 × lowest/stable on Linux and Windows, a separate job that installs the package into an empty project **without the Laravel framework** and files an issue (`tests/Standalone/smoke.php`), plus PHPStan, Pint and the frontend checks. An architecture test fails the build if the core ever uses anything that needs a Laravel application.
 
 ## Changelog
 

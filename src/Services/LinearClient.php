@@ -21,9 +21,9 @@ use Dniccum\Linear\Exceptions\LinearApiException;
 use Dniccum\Linear\LinearConfig;
 use Dniccum\Linear\Support\Json;
 use Dniccum\Linear\Support\NullMutex;
-use Dniccum\Linear\Transport\PsrTransport;
-use Dniccum\Linear\Transport\Response;
-use Dniccum\Linear\Transport\Transport;
+use Illuminate\Http\Client\Factory as HttpFactory;
+use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\Response;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Throwable;
@@ -36,9 +36,8 @@ use Throwable;
  * Linear rejects the credentials outright. Personal API keys are sent as the
  * raw Authorization header and never refreshed.
  *
- * It depends on no framework: requests go through a PSR-18 client (see
- * {@see PsrTransport}), logging through PSR-3, and the token refresh lock is
- * a {@see Mutex}.
+ * It needs no framework: requests go through the standalone `illuminate/http`
+ * client, logging through PSR-3, and the token refresh lock is a {@see Mutex}.
  */
 class LinearClient
 {
@@ -47,7 +46,7 @@ class LinearClient
     protected Mutex $mutex;
 
     public function __construct(
-        protected Transport $http,
+        protected HttpFactory $http,
         protected LinearOAuth $oauth,
         protected LinearConfig $config,
         ?LoggerInterface $logger = null,
@@ -157,7 +156,7 @@ class LinearClient
             }
             GRAPHQL, ['teamId' => $teamId], 'issueLabels');
 
-        $states = Json::rows(Json::get($team, 'states.nodes'));
+        $states = Json::rows(data_get($team, 'states.nodes'));
         usort($states, fn (array $a, array $b): int => Json::integer($a['position'] ?? null) <=> Json::integer($b['position'] ?? null));
 
         $openProjects = array_values(array_filter(
@@ -280,7 +279,7 @@ class LinearClient
         try {
             return $this->send($connection->accessToken(), $connection->authMode(), $query, $variables);
         } catch (LinearApiException $e) {
-            if (! $e->requiresReconnect() || Json::blank($connection->refreshToken())) {
+            if (! $e->requiresReconnect() || blank($connection->refreshToken())) {
                 throw $this->recordFailure($connection, $e);
             }
         }
@@ -311,7 +310,7 @@ class LinearClient
         $after = null;
 
         for ($page = 0; $page < $maxPages; $page++) {
-            $result = Json::map(Json::get($this->query($connection, $query, [...$variables, 'after' => $after]), $path));
+            $result = Json::map(data_get($this->query($connection, $query, [...$variables, 'after' => $after]), $path));
             $pageInfo = Json::map($result['pageInfo'] ?? null);
             $cursor = Json::nullableString($pageInfo['endCursor'] ?? null);
 
@@ -346,7 +345,7 @@ class LinearClient
 
             $refreshToken = $connection->refreshToken();
 
-            if ($refreshToken === null || Json::blank($refreshToken)) {
+            if (blank($refreshToken)) {
                 throw $this->recordFailure($connection, new LinearApiException(
                     'Your Linear authorization has expired. Reconnect Linear to continue.',
                     LinearApiException::AUTHENTICATION,
@@ -426,11 +425,10 @@ class LinearClient
     protected function send(string $token, LinearAuthMode $mode, string $query, array $variables = []): array
     {
         try {
-            $response = $this->http->postJson(
-                $this->config->apiEndpoint('/graphql'),
-                ['Authorization' => $mode === LinearAuthMode::ApiKey ? $token : 'Bearer '.$token],
-                $variables === [] ? ['query' => $query] : ['query' => $query, 'variables' => $variables],
-            );
+            $response = $this->request($token, $mode)
+                ->post($this->config->apiEndpoint('/graphql'), $variables === []
+                    ? ['query' => $query]
+                    : ['query' => $query, 'variables' => $variables]);
         } catch (Throwable $e) {
             $this->logger->warning('Linear API request failed.', ['exception' => $e->getMessage()]);
 
@@ -457,14 +455,27 @@ class LinearClient
     }
 
     /**
+     * OAuth tokens are Bearer credentials; a personal API key goes in the
+     * Authorization header as-is.
+     */
+    protected function request(string $token, LinearAuthMode $mode): PendingRequest
+    {
+        $request = $mode === LinearAuthMode::ApiKey
+            ? $this->http->withHeaders(['Authorization' => $token])
+            : $this->http->withToken($token);
+
+        return $request->acceptJson()->timeout(15);
+    }
+
+    /**
      * @param  array<array-key, mixed>  $errors
      */
     protected function classify(Response $response, array $errors): LinearApiException
     {
         $error = Json::map($errors[0] ?? null);
-        $code = strtoupper(Json::string(Json::get($error, 'extensions.code')));
-        $type = strtolower(Json::string(Json::get($error, 'extensions.type')));
-        $message = Json::nullableString(Json::get($error, 'extensions.userPresentableMessage')) ?? Json::string($error['message'] ?? null);
+        $code = strtoupper(Json::string(data_get($error, 'extensions.code')));
+        $type = strtolower(Json::string(data_get($error, 'extensions.type')));
+        $message = Json::nullableString(data_get($error, 'extensions.userPresentableMessage')) ?? Json::string($error['message'] ?? null);
 
         $this->logger->warning('Linear API returned an error.', [
             'status' => $response->status(),

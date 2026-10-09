@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Dniccum\Linear\Models;
 
-use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Dniccum\Linear\Contracts\Connection;
 use Dniccum\Linear\Data\Tokens;
@@ -137,7 +136,7 @@ class LinearConnection extends Model implements Connection
         $this->forceFill([
             'access_token' => $tokens->accessToken,
             'refresh_token' => $tokens->refreshToken ?? $this->refresh_token,
-            'token_expires_at' => $tokens->expiresAt(CarbonImmutable::now()),
+            'token_expires_at' => $tokens->expiresAt(),
             'status' => LinearConnectionStatus::Active,
         ])->save();
     }

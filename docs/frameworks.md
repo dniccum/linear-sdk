@@ -1,6 +1,6 @@
 # Using Linear SDK outside Laravel
 
-Linear SDK started life as a Laravel package, and the Laravel integration is still the most complete one. But the part that talks to Linear, and the part that decides *when* and *how often* to talk to it, do not need Laravel. They are a framework-agnostic core that depends only on PHP and a handful of PSR interfaces, so they run in Symfony, Slim, Mezzio, or a plain PHP script.
+Linear SDK started life as a Laravel package, and the Laravel integration is still the most complete one. But the part that talks to Linear, and the part that decides *when* and *how often* to talk to it, do not need Laravel. They are a framework-agnostic core built on the standalone Illuminate components (`illuminate/support`, `illuminate/http`, `illuminate/cache`, `illuminate/contracts`), Carbon and a few PSR interfaces. Those components do not need a Laravel application, so the core runs in Symfony, Slim, Mezzio, or a plain PHP script. The Laravel *framework* is never installed for you.
 
 - [What works where](#what-works-where)
 - [How the package is layered](#how-the-package-is-layered)
@@ -28,7 +28,7 @@ Linear SDK started life as a Laravel package, and the Laravel integration is sti
 | Service provider, facade, config file, migrations, Eloquent models, model traits, queued jobs, Actions | ✅ | not applicable |
 | **Configuration page** (Blade views and components, routes, JSON API) | ✅ | ❌ |
 
-Everything in the second and third rows is plain PHP. Everything in the last two rows needs Laravel and is only loaded by Laravel's service provider.
+Everything in the first rows is plain PHP on top of the standalone Illuminate packages. Everything in the last two rows needs a Laravel application and is only loaded by Laravel's service provider.
 
 ## How the package is layered
 
@@ -40,14 +40,16 @@ Everything in the second and third rows is plain PHP. Everything in the last two
                                  │ implements the ports below
                  ┌───────────────▼──────────────────────────────────────────────┐
  Core            │ LinearClient · LinearOAuth · LinearIssueSync                 │
- (PHP + PSR)     │ DTOs · Enums · Events · LinearConfig · FakeLinearClient      │
+ (standalone     │ DTOs · Enums · Events · LinearConfig · FakeLinearClient      │
+  Illuminate     │                                                              │
+  packages)      │                                                              │
                  └───────────────┬──────────────────────────────────────────────┘
                                  │ talks to the outside world only through
-        PSR-18 / PSR-17 (HTTP) · PSR-3 (logs) · PSR-14 (events)  +  the ports:
+        illuminate/http (HTTP) · PSR-3 (logs) · PSR-14 (events)  +  the ports:
         Connection · IssueLink · CommentDelivery · LinearStore · SyncQueue · Mutex · ErrorReporter
 ```
 
-An architecture test (`tests/Arch/ArchTest.php`) fails the build if any class in the core uses `Illuminate\*`, Carbon or the Laravel adapter, and a CI job installs the package with **no Laravel at all** and files an issue through Symfony's HTTP client (`tests/Standalone/smoke.php`).
+An architecture test (`tests/Arch/ArchTest.php`) keeps the core to an explicit allow-list (`Illuminate\Support\Str`/`Arr`, the `illuminate/http` client, the cache and support contracts, Carbon and the PSR interfaces), so a facade, Eloquent, `config()` or `app()` in the core fails the build. A CI job installs the package into an empty project, checks that `laravel/framework` is *not* installed, and files an issue (`tests/Standalone/smoke.php`).
 
 ### The ports
 
@@ -55,14 +57,14 @@ You only implement the ports you use. The API client needs just a `Connection`; 
 
 | Interface | You provide | What it is for |
 |---|---|---|
-| `Psr\Http\Client\ClientInterface` + PSR-17 factories | any PSR-18 client | Every HTTP request. Wrap them in `PsrTransport`. Configure a timeout of about 15 seconds on the client. |
+| `Illuminate\Http\Client\Factory` | `new Factory` | Every HTTP request. It is installed with the package and needs no application. Proxies, extra middleware and the like go through `$factory->globalOptions()` / `globalMiddleware()`; requests already carry a 15 second timeout. |
 | `LinearConfig` | built from your config | OAuth credentials, scopes, API URL, `on_update` / `on_delete`. `LinearConfig::fromArray()` reads the keys of `config/linear.php`. |
 | `Contracts\Connection` | your entity | One owner's authorization of one workspace: tokens, status, and the `mark*()` calls the client makes when Linear rejects them. |
 | `Contracts\IssueSource` / `IssueOwner` | a wrapper around your records | The record that becomes an issue (title, description, owner) and whoever owns the connection. |
 | `Contracts\IssueLink` / `CommentDelivery` | your entities | The durable state that makes retries idempotent. There must be at most one link per record. |
 | `Contracts\LinearStore` | your repository | Finds and creates links and deliveries. |
 | `Contracts\SyncQueue` | your queue | Hands "create this issue" and "post this comment" messages to a worker. |
-| `Contracts\Mutex` | optional | Serialises OAuth token refreshes between workers. The default does no locking. |
+| `Contracts\Mutex` | optional | Serialises OAuth token refreshes between workers. `Support\CacheMutex` does it with `illuminate/cache` locks (a file store works across processes); the default does no locking. |
 | `Contracts\ErrorReporter` | optional | Where unexpected exceptions go (the sync treats them as transient and retries). Pass `new LogErrorReporter($psr3Logger)` to log them; without a reporter they are swallowed. |
 | `Psr\EventDispatcher\EventDispatcherInterface` | optional | Receives `LinearIssueCreated`, `LinearIssueFailed` and `LinearCommentDelivered`. |
 | `Psr\Log\LoggerInterface` | optional | Warnings about failed requests. |
@@ -73,10 +75,9 @@ You only implement the ports you use. The API client needs just a `Connection`; 
 
 ```bash
 composer require dniccum/linear-sdk
-composer require symfony/http-client nyholm/psr7     # or any PSR-18 client and PSR-17 factories
 ```
 
-Nothing from Laravel is installed. (If Laravel *is* present, the package registers itself through Laravel's package discovery, as before.)
+That is all: the standalone Illuminate components (`support`, `http`, `cache`, ...) and Carbon come along, the Laravel framework does not. (If Laravel *is* present, the package registers itself through Laravel's package discovery, as before.)
 
 ## Level 1: the API client
 
@@ -88,12 +89,9 @@ use Dniccum\Linear\Data\IssuePayload;
 use Dniccum\Linear\LinearConfig;
 use Dniccum\Linear\Services\LinearClient;
 use Dniccum\Linear\Services\LinearOAuth;
-use Dniccum\Linear\Transport\PsrTransport;
-use Symfony\Component\HttpClient\HttpClient;
-use Symfony\Component\HttpClient\Psr18Client;
+use Illuminate\Http\Client\Factory;
 
-$psr18 = new Psr18Client(HttpClient::create(['timeout' => 15]));   // a client *and* PSR-17 factories
-$transport = new PsrTransport($psr18, $psr18, $psr18);
+$http = new Factory;
 
 $config = new LinearConfig(
     clientId: $_ENV['LINEAR_CLIENT_ID'],
@@ -101,14 +99,14 @@ $config = new LinearConfig(
     redirectUri: 'https://app.test/linear/callback',
 );
 
-$client = new LinearClient($transport, new LinearOAuth($transport, $config), $config);
+$client = new LinearClient($http, new LinearOAuth($http, $config), $config);
 
 $teams = $client->teams($connection);
 $options = $client->teamOptions($connection, $teams[0]->id);   // projects, statuses, labels, members
 
 $issue = $client->createIssue(
     $connection,
-    Dniccum\Linear\Support\Uuid::v4(),   // Linear's issue ID: generated by you, reused on every retry
+    (string) Illuminate\Support\Str::uuid(),   // Linear's issue ID: generated by you, reused on every retry
     new IssuePayload(new Destination($teams[0]->id, priority: 2), 'Cannot upload', 'Uploads fail.'),
 );
 ```
@@ -239,13 +237,7 @@ services:
         autowire: true
         autoconfigure: true
 
-    Psr\Http\Client\ClientInterface:
-        class: Symfony\Component\HttpClient\Psr18Client
-        arguments: ['@http_client']        # configure framework.http_client.default_options.timeout: 15
-
-    Dniccum\Linear\Transport\Transport:
-        class: Dniccum\Linear\Transport\PsrTransport
-        arguments: ['@Psr\Http\Client\ClientInterface', '@Psr\Http\Client\ClientInterface', '@Psr\Http\Client\ClientInterface']
+    Illuminate\Http\Client\Factory: ~     # Illuminate's standalone HTTP client (Guzzle)
 
     Dniccum\Linear\LinearConfig:
         factory: ['Dniccum\Linear\LinearConfig', 'fromArray']
@@ -257,7 +249,7 @@ services:
                 on_update: ignore
                 on_delete: ignore
 
-    Dniccum\Linear\Contracts\Mutex: '@App\Linear\SymfonyLockMutex'
+    Dniccum\Linear\Contracts\Mutex: '@App\Linear\LinearMutex'      # see "Locking the token refresh"
     Dniccum\Linear\Contracts\LinearStore: '@App\Linear\DoctrineLinearStore'
     Dniccum\Linear\Contracts\SyncQueue: '@App\Linear\MessengerSyncQueue'
 
@@ -426,7 +418,20 @@ class LinearConnectionEntity implements Connection
 
 ## Locking the token refresh
 
-Linear rotates the refresh token every time it is used. If two workers refresh the same connection at once, one of them is left with a dead token. `LinearClient` takes the lock named `linear-connection-refresh:{connectionId}` through the `Mutex` port, so give it a real lock if you run more than one worker. With the Symfony Lock component:
+Linear rotates the refresh token every time it is used. If two workers refresh the same connection at once, one of them is left with a dead token. `LinearClient` takes the lock named `linear-connection-refresh:{connectionId}` through the `Mutex` port, so give it a real lock if you run more than one worker.
+
+With `illuminate/cache` (already installed), a file store is shared between processes on one machine:
+
+```php
+use Dniccum\Linear\Support\CacheMutex;
+use Illuminate\Cache\FileStore;
+use Illuminate\Cache\Repository;
+use Illuminate\Filesystem\Filesystem;
+
+$mutex = new CacheMutex(new Repository(new FileStore(new Filesystem, '/var/cache/linear')));
+```
+
+For several machines, point `CacheMutex` at a Redis- or database-backed `Repository`, or use the Symfony Lock component:
 
 ```php
 final class SymfonyLockMutex implements Mutex
@@ -455,7 +460,7 @@ final class SymfonyLockMutex implements Mutex
 }
 ```
 
-Pass it as the fifth argument of `LinearClient`. After acquiring the lock the client reloads the connection (`Connection::reload()`), so make that method re-read the row.
+Pass either one as the fifth argument of `LinearClient` (or alias it to `Contracts\Mutex` as in the services above). After acquiring the lock the client reloads the connection (`Connection::reload()`), so make that method re-read the row.
 
 ## Events
 
@@ -515,10 +520,10 @@ The page's JavaScript bundle talks to a documented JSON API ([http-contract.md](
 | | Laravel | Other frameworks |
 |---|---|---|
 | Configuration | `config/linear.php` and `.env` | Build a `LinearConfig` |
-| HTTP client | Laravel's (so `Http::fake()` and your HTTP middleware apply) | Any PSR-18 client; set its timeout yourself |
+| HTTP client | Laravel's own `Http` factory (so `Http::fake()` and your HTTP middleware apply) | A standalone `Illuminate\Http\Client\Factory` |
 | Storage | Four Eloquent tables from published migrations | Your own: implement `Connection`, `IssueLink`, `CommentDelivery`, `LinearStore` |
 | Queue | `CreateLinearIssue` and `DeliverLinearComment` jobs | Your own: implement `SyncQueue` and call `processIssue()` / `processComment()` |
-| Token refresh lock | Laravel cache lock, automatic | Provide a `Mutex` if you run several workers |
+| Token refresh lock | Laravel cache lock, automatic | Provide a `Mutex` if you run several workers (`CacheMutex` on a file store, or the Symfony Lock component) |
 | Lifecycle hooks | Eloquent events via `CreatesLinearIssues` | Call `handleEvent()` from your ORM |
 | Encryption of tokens | `encrypted` cast | Your responsibility |
 | Events | Laravel events | PSR-14 |

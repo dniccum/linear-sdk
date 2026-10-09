@@ -26,31 +26,6 @@ final class Json
     }
 
     /**
-     * Read a nested value with dot notation ("extensions.code"), or the
-     * default when any step of the path is missing.
-     */
-    public static function get(mixed $target, string $path, mixed $default = null): mixed
-    {
-        foreach (explode('.', $path) as $segment) {
-            if (! is_array($target) || ! array_key_exists($segment, $target)) {
-                return $default;
-            }
-
-            $target = $target[$segment];
-        }
-
-        return $target;
-    }
-
-    /**
-     * Whether a value is missing, empty or only whitespace.
-     */
-    public static function blank(?string $value): bool
-    {
-        return $value === null || trim($value) === '';
-    }
-
-    /**
      * @return array<string, mixed>
      */
     public static function map(mixed $value): array

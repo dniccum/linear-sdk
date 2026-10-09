@@ -26,7 +26,8 @@ use Dniccum\Linear\Exceptions\LinearApiException;
 use Dniccum\Linear\LinearConfig;
 use Dniccum\Linear\Support\Json;
 use Dniccum\Linear\Support\LogErrorReporter;
-use Dniccum\Linear\Support\Uuid;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Str;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Throwable;
 
@@ -151,7 +152,7 @@ class LinearIssueSync
         $base = ($source->destinationOverride() ?? $owner->destination())?->destination();
         $destination = Destination::fromArray([
             ...($base?->toArray() ?? []),
-            ...array_intersect_key($overrides, array_flip(self::DESTINATION_FIELDS)),
+            ...Arr::only($overrides, self::DESTINATION_FIELDS),
         ]);
 
         if ($destination->teamId === '') {
@@ -181,7 +182,7 @@ class LinearIssueSync
         // Filing into a different workspace than the failed attempt starts
         // over: the old issue ID can only ever exist in the old workspace.
         if ($link->organizationId() !== $connection->organizationId()) {
-            $newIssueId = Uuid::v4();
+            $newIssueId = (string) Str::uuid();
         } elseif ($link->attemptCount() > 0) {
             // An earlier attempt may have created the issue before its
             // response was lost. Adopt it as-is rather than accepting new
@@ -228,7 +229,7 @@ class LinearIssueSync
 
     public function queueComment(IssueLink $link, string $body, ?IssueSource $origin = null): CommentDelivery
     {
-        $delivery = $this->store->createDelivery($link, Uuid::v4(), $body, $origin);
+        $delivery = $this->store->createDelivery($link, (string) Str::uuid(), $body, $origin);
 
         if ($delivery->wasJustQueued() && $link->isSynced()) {
             $this->queue->comment($delivery, afterCommit: true);
@@ -520,7 +521,7 @@ class LinearIssueSync
     protected function createLink(IssueSource $source, IssueOwner $owner, Connection $connection, LinearIssueSource $kind, IssuePayload $payload): IssueLink
     {
         try {
-            $link = $this->store->createLink($source, $owner, $connection, $kind, Uuid::v4(), $payload);
+            $link = $this->store->createLink($source, $owner, $connection, $kind, (string) Str::uuid(), $payload);
         } catch (DuplicateIssueLinkException) {
             // Another process linked this record first.
             return $this->store->linkFor($source) ?? throw new DuplicateIssueLinkException;

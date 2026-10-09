@@ -74,7 +74,7 @@ final readonly class LinearConfig
      */
     public function hasOAuthCredentials(): bool
     {
-        return ! Json::blank($this->clientId) && ! Json::blank($this->clientSecret);
+        return filled($this->clientId) && filled($this->clientSecret);
     }
 
     /**

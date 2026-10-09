@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Dniccum\Linear\Data;
 
 use Dniccum\Linear\Support\Json;
+use Illuminate\Support\Str;
 
 final readonly class Member extends Data
 {
@@ -48,11 +49,12 @@ final readonly class Member extends Data
             return $this->initials;
         }
 
-        $words = preg_split('/\s+/u', trim($this->name), -1, PREG_SPLIT_NO_EMPTY);
-        $initials = implode('', array_map(
-            fn (string $word): string => mb_substr($word, 0, 1),
-            array_slice($words === false ? [] : $words, 0, 2),
-        ));
+        $initials = Str::of($this->name)->squish()
+            ->explode(' ')
+            ->filter(fn (string $word): bool => $word !== '')
+            ->take(2)
+            ->map(fn (string $word): string => mb_substr($word, 0, 1))
+            ->implode('');
 
         return $initials === '' ? '?' : mb_strtoupper($initials);
     }

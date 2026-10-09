@@ -10,21 +10,18 @@ use Dniccum\Linear\Contracts\LinearStore;
 use Dniccum\Linear\Contracts\Mutex;
 use Dniccum\Linear\Contracts\SyncQueue;
 use Dniccum\Linear\Laravel\EloquentStore;
-use Dniccum\Linear\Laravel\IlluminateHttpClient;
 use Dniccum\Linear\Laravel\LaravelErrorReporter;
 use Dniccum\Linear\Laravel\LaravelEventDispatcher;
-use Dniccum\Linear\Laravel\LaravelMutex;
 use Dniccum\Linear\Laravel\LaravelQueue;
 use Dniccum\Linear\Services\LinearClient;
 use Dniccum\Linear\Services\LinearIssueSync;
 use Dniccum\Linear\Services\LinearOAuth;
+use Dniccum\Linear\Support\CacheMutex;
 use Dniccum\Linear\Support\Json;
 use Dniccum\Linear\Support\LinearAssets;
-use Dniccum\Linear\Transport\PsrTransport;
-use Dniccum\Linear\Transport\Transport;
 use Dniccum\Linear\View\Components\Assets;
 use Dniccum\Linear\View\Components\Settings;
-use GuzzleHttp\Psr7\HttpFactory as Psr17Factory;
+use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Http\Client\Factory as HttpFactory;
@@ -101,25 +98,19 @@ class LinearServiceProvider extends ServiceProvider
             return LinearConfig::fromArray($values);
         });
 
-        $this->app->bind(Transport::class, function (Container $app): Transport {
-            $factory = new Psr17Factory;
-
-            return new PsrTransport(new IlluminateHttpClient($app->make(HttpFactory::class)), $factory, $factory);
-        });
-
-        $this->app->bind(Mutex::class, LaravelMutex::class);
+        $this->app->bind(Mutex::class, fn (Container $app): Mutex => new CacheMutex($app->make(CacheFactory::class)->store()));
         $this->app->bind(ErrorReporter::class, LaravelErrorReporter::class);
         $this->app->bind(SyncQueue::class, LaravelQueue::class);
         $this->app->bind(LinearStore::class, EloquentStore::class);
 
         $this->app->bind(LinearOAuth::class, fn (Container $app): LinearOAuth => new LinearOAuth(
-            $app->make(Transport::class),
+            $app->make(HttpFactory::class),
             $app->make(LinearConfig::class),
             $app->make('log'),
         ));
 
         $this->app->bind(LinearClient::class, fn (Container $app): LinearClient => new LinearClient(
-            $app->make(Transport::class),
+            $app->make(HttpFactory::class),
             $app->make(LinearOAuth::class),
             $app->make(LinearConfig::class),
             $app->make('log'),

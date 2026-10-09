@@ -7,6 +7,7 @@ namespace Dniccum\Linear\Testing;
 use Dniccum\Linear\Data\Tokens;
 use Dniccum\Linear\LinearConfig;
 use Dniccum\Linear\Services\LinearOAuth;
+use Illuminate\Http\Client\Factory as HttpFactory;
 
 /**
  * An in-memory {@see LinearOAuth}: the token endpoint answers with canned
@@ -26,9 +27,14 @@ final class FakeLinearOAuth extends LinearOAuth
      */
     private array $codes = [];
 
-    public function __construct(?LinearConfig $config = null)
+    /**
+     * The HTTP client defaults to one that refuses every request: the fake
+     * answers from memory, so a request means a test is about to talk to the
+     * real Linear.
+     */
+    public function __construct(?LinearConfig $config = null, ?HttpFactory $http = null)
     {
-        parent::__construct(new NullTransport, $config ?? new LinearConfig);
+        parent::__construct($http ?? (new HttpFactory)->preventStrayRequests(), $config ?? new LinearConfig);
 
         $this->tokens = new Tokens('fake-access-token', 'fake-refresh-token', 86400, $this->scopes());
     }

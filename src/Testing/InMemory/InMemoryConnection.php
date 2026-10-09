@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Dniccum\Linear\Testing\InMemory;
 
+use Carbon\CarbonImmutable;
 use DateTimeImmutable;
 use Dniccum\Linear\Contracts\Connection;
 use Dniccum\Linear\Data\Tokens;
@@ -67,7 +68,7 @@ final class InMemoryConnection implements Connection
 
     public function tokenExpiresSoon(): bool
     {
-        return $this->expiresAt !== null && $this->expiresAt <= new DateTimeImmutable('+5 minutes');
+        return $this->expiresAt !== null && $this->expiresAt <= CarbonImmutable::now()->addMinutes(5);
     }
 
     public function reload(): void

@@ -15,8 +15,9 @@ use Dniccum\Linear\Testing\InMemory\InMemoryOwner;
 use Dniccum\Linear\Testing\InMemory\InMemoryQueue;
 use Dniccum\Linear\Testing\InMemory\InMemorySource;
 use Dniccum\Linear\Testing\InMemory\InMemoryStore;
-use Dniccum\Linear\Tests\Core\Support\ScriptedTransport;
-use Dniccum\Linear\Transport\Response;
+use Dniccum\Linear\Tests\Core\Support\ScriptedHttp;
+use GuzzleHttp\Promise\PromiseInterface;
+use Illuminate\Http\Client\Factory;
 use Psr\EventDispatcher\EventDispatcherInterface;
 
 /**
@@ -65,14 +66,14 @@ function coreSource(InMemoryOwner $owner, int $id = 1): InMemorySource
 }
 
 /**
- * A real client over a scripted transport.
+ * A real client over scripted HTTP.
  *
- * @param  list<Response|Throwable>  $script
+ * @param  list<PromiseInterface|Throwable>  $script
  */
-function scriptedClient(array $script, ?ScriptedTransport &$transport = null, ?LinearConfig $config = null): LinearClient
+function scriptedClient(array $script, ?Factory &$http = null, ?LinearConfig $config = null): LinearClient
 {
     $config ??= new LinearConfig(clientId: 'id', clientSecret: 'secret', redirectUri: 'https://app.test/callback');
-    $transport = new ScriptedTransport($script);
+    $http = ScriptedHttp::make($script);
 
-    return new LinearClient($transport, new LinearOAuth($transport, $config), $config);
+    return new LinearClient($http, new LinearOAuth($http, $config), $config);
 }

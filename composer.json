@@ -1,6 +1,6 @@
 {
     "name": "dniccum/linear-sdk",
-    "description": "A PHP SDK for creating Linear issues from your application's records. Framework-agnostic core with first-class Laravel support (Eloquent traits, queue jobs, facade and an optional branded configuration page).",
+    "description": "A PHP SDK for creating Linear issues from your application's records. Framework-agnostic core built on standalone Illuminate components, with first-class Laravel support (Eloquent traits, queue jobs, facade and an optional branded configuration page).",
     "keywords": [
         "laravel",
         "symfony",
@@ -21,11 +21,16 @@
     ],
     "require": {
         "php": "^8.3",
+        "illuminate/cache": "^12.0||^13.0",
+        "illuminate/collections": "^12.0||^13.0",
+        "illuminate/contracts": "^12.0||^13.0",
+        "illuminate/filesystem": "^12.0||^13.0",
+        "illuminate/http": "^12.0||^13.0",
+        "illuminate/support": "^12.0||^13.0",
+        "nesbot/carbon": "^3.8.4",
         "psr/event-dispatcher": "^1.0",
-        "psr/http-client": "^1.0.3",
-        "psr/http-factory": "^1.1",
-        "psr/http-message": "^1.1||^2.0",
-        "psr/log": "^1.1||^2.0||^3.0"
+        "psr/log": "^1.1||^2.0||^3.0",
+        "ramsey/uuid": "^4.7"
     },
     "require-dev": {
         "larastan/larastan": "^3.0",
@@ -44,9 +49,7 @@
         "phpstan/phpstan-strict-rules": "^2.0"
     },
     "suggest": {
-        "laravel/framework": "^12.0||^13.0: enables the Laravel integration (service provider, facade, Eloquent models and traits, queued jobs and the configuration page).",
-        "symfony/http-client": "A PSR-18 HTTP client for non-Laravel applications (use it through Symfony\\Component\\HttpClient\\Psr18Client).",
-        "nyholm/psr7": "PSR-17 request and stream factories for non-Laravel applications."
+        "laravel/framework": "^12.0||^13.0: enables the Laravel integration (service provider, facade, Eloquent models and traits, queued jobs and the configuration page)."
     },
     "conflict": {
         "laravel/framework": "<12.0"

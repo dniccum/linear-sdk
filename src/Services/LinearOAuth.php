@@ -8,8 +8,8 @@ use Dniccum\Linear\Data\Tokens;
 use Dniccum\Linear\Exceptions\LinearApiException;
 use Dniccum\Linear\LinearConfig;
 use Dniccum\Linear\Support\Json;
-use Dniccum\Linear\Transport\Response;
-use Dniccum\Linear\Transport\Transport;
+use Illuminate\Http\Client\Factory as HttpFactory;
+use Illuminate\Http\Client\Response;
 use LogicException;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -24,7 +24,7 @@ class LinearOAuth
     protected LoggerInterface $logger;
 
     public function __construct(
-        protected Transport $http,
+        protected HttpFactory $http,
         protected LinearConfig $config,
         ?LoggerInterface $logger = null,
     ) {
@@ -119,7 +119,10 @@ class LinearOAuth
     {
         try {
             return $this->http
-                ->postForm($this->config->apiEndpoint('/oauth/revoke'), ['Authorization' => 'Bearer '.$token], ['token' => $token])
+                ->asForm()
+                ->withToken($token)
+                ->timeout(10)
+                ->post($this->config->apiEndpoint('/oauth/revoke'), ['token' => $token])
                 ->successful();
         } catch (Throwable $e) {
             $this->logger->warning('Failed to revoke a Linear token.', ['exception' => $e->getMessage()]);
@@ -136,11 +139,15 @@ class LinearOAuth
     protected function requestToken(array $params): Tokens
     {
         try {
-            $response = $this->http->postForm($this->config->apiEndpoint('/oauth/token'), [], [
-                ...$params,
-                'client_id' => $this->config->clientId,
-                'client_secret' => $this->config->clientSecret,
-            ]);
+            $response = $this->http
+                ->asForm()
+                ->acceptJson()
+                ->timeout(15)
+                ->post($this->config->apiEndpoint('/oauth/token'), [
+                    ...$params,
+                    'client_id' => $this->config->clientId,
+                    'client_secret' => $this->config->clientSecret,
+                ]);
         } catch (Throwable) {
             throw new LinearApiException('Could not reach Linear. Please try again.', LinearApiException::TRANSIENT);
         }
