@@ -18,7 +18,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "alpinejs": "^3.17.4"
+    "alpinejs": "^3.17.5"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
