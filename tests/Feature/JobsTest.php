@@ -2,15 +2,19 @@
 
 declare(strict_types=1);
 
+use Dniccum\Linear\Contracts\ErrorReporter;
+use Dniccum\Linear\Contracts\IssueLink;
+use Dniccum\Linear\Contracts\LinearStore;
+use Dniccum\Linear\Contracts\SyncQueue;
 use Dniccum\Linear\Enums\LinearSyncStatus;
 use Dniccum\Linear\Exceptions\LinearApiException;
 use Dniccum\Linear\Jobs\CreateLinearIssue;
 use Dniccum\Linear\Jobs\DeliverLinearComment;
+use Dniccum\Linear\LinearConfig;
 use Dniccum\Linear\Models\LinearCommentDelivery;
 use Dniccum\Linear\Models\LinearConnection;
 use Dniccum\Linear\Models\LinearDestination;
 use Dniccum\Linear\Models\LinearIssueLink;
-use Dniccum\Linear\Services\IssueComposer;
 use Dniccum\Linear\Services\LinearClient;
 use Dniccum\Linear\Services\LinearIssueSync;
 use Illuminate\Support\Facades\Exceptions;
@@ -96,9 +100,9 @@ test('a permanent failure is not released', function () {
 
 test('an unexpected exception is reported and treated as transient', function () {
     Exceptions::fake();
-    app()->bind(LinearIssueSync::class, fn () => new class(app(LinearClient::class), app(IssueComposer::class)) extends LinearIssueSync
+    app()->bind(LinearIssueSync::class, fn () => new class(app(LinearClient::class), app(LinearStore::class), app(SyncQueue::class), app(LinearConfig::class), null, app(ErrorReporter::class)) extends LinearIssueSync
     {
-        public function pushIssue(LinearIssueLink $link): void
+        public function pushIssue(IssueLink $link): void
         {
             throw new RuntimeException('kaboom');
         }

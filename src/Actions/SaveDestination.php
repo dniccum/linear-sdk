@@ -6,6 +6,7 @@ namespace Dniccum\Linear\Actions;
 
 use Dniccum\Linear\Data\Destination;
 use Dniccum\Linear\Enums\LinearSendMode;
+use Dniccum\Linear\Exceptions\InvalidDestinationException;
 use Dniccum\Linear\Exceptions\LinearApiException;
 use Dniccum\Linear\Models\LinearDestination;
 use Dniccum\Linear\Services\DestinationResolver;
@@ -30,7 +31,12 @@ class SaveDestination
     public function execute(Model $owner, Destination $destination, LinearSendMode $sendMode = LinearSendMode::Automatic): LinearDestination
     {
         $connection = ModelHooks::connection($owner) ?? throw LinearApiException::notConnected();
-        $resolved = $this->resolver->resolve($connection, $destination);
+
+        try {
+            $resolved = $this->resolver->resolve($connection, $destination);
+        } catch (InvalidDestinationException $e) {
+            throw ValidationException::withMessages($e->errors);
+        }
 
         return LinearDestination::query()->updateOrCreate(
             ['owner_type' => $owner->getMorphClass(), 'owner_id' => $owner->getKey()],
