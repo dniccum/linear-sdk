@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Dniccum\Linear\Events;
 
-use Dniccum\Linear\Models\LinearIssueLink;
+use Dniccum\Linear\Contracts\IssueLink;
 
 /**
  * Filing the issue failed for good (a permanent error, or the retries were
@@ -13,7 +13,7 @@ use Dniccum\Linear\Models\LinearIssueLink;
 final readonly class LinearIssueFailed
 {
     public function __construct(
-        public LinearIssueLink $link,
+        public IssueLink $link,
         public string $message,
     ) {}
 }

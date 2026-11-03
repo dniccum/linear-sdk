@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Dniccum\Linear\Testing;
 
+use Dniccum\Linear\Contracts\Connection;
 use Dniccum\Linear\Data\Comment;
 use Dniccum\Linear\Data\Issue;
 use Dniccum\Linear\Data\IssuePayload;
@@ -17,7 +18,7 @@ use Dniccum\Linear\Data\Viewer;
 use Dniccum\Linear\Data\WorkflowState;
 use Dniccum\Linear\Enums\LinearAuthMode;
 use Dniccum\Linear\Exceptions\LinearApiException;
-use Dniccum\Linear\Models\LinearConnection;
+use Dniccum\Linear\LinearConfig;
 use Dniccum\Linear\Services\LinearClient;
 use Illuminate\Http\Client\Factory as HttpFactory;
 
@@ -72,9 +73,9 @@ final class FakeLinearClient extends LinearClient
      */
     private array $failures = [];
 
-    public function __construct(HttpFactory $http, FakeLinearOAuth $oauth)
+    public function __construct(FakeLinearOAuth $oauth, ?LinearConfig $config = null, ?HttpFactory $http = null)
     {
-        parent::__construct($http, $oauth);
+        parent::__construct($http ?? (new HttpFactory)->preventStrayRequests(), $oauth, $config ?? new LinearConfig);
 
         $this->teams = [new Team('team-1', 'Support', 'SUP', '#5e6ad2', '🛟')];
         $this->viewer = new Viewer('viewer-1', 'Ada Lovelace', 'ada@example.com', new Organization('org-1', 'Acme', 'acme'));
@@ -161,14 +162,14 @@ final class FakeLinearClient extends LinearClient
         return $this->viewer;
     }
 
-    public function teams(LinearConnection $connection): array
+    public function teams(Connection $connection): array
     {
         $this->record('teams', ['connection' => $connection]);
 
         return $this->teams;
     }
 
-    public function teamOptions(LinearConnection $connection, string $teamId): TeamOptions
+    public function teamOptions(Connection $connection, string $teamId): TeamOptions
     {
         $this->record('teamOptions', ['connection' => $connection, 'teamId' => $teamId]);
 
@@ -185,7 +186,7 @@ final class FakeLinearClient extends LinearClient
         throw new LinearApiException('That Linear team is no longer available to your connection.', LinearApiException::INVALID_REQUEST);
     }
 
-    public function createIssue(LinearConnection $connection, string $issueId, IssuePayload $payload): Issue
+    public function createIssue(Connection $connection, string $issueId, IssuePayload $payload): Issue
     {
         $this->record('createIssue', ['connection' => $connection, 'issueId' => $issueId, 'payload' => $payload]);
 
@@ -195,14 +196,14 @@ final class FakeLinearClient extends LinearClient
         return $this->issues[$issueId] = new Issue($issueId, "FAKE-{$number}", "https://linear.app/fake/issue/FAKE-{$number}");
     }
 
-    public function findIssue(LinearConnection $connection, string $id): ?Issue
+    public function findIssue(Connection $connection, string $id): ?Issue
     {
         $this->record('findIssue', ['connection' => $connection, 'id' => $id]);
 
         return $this->issues[$id] ?? null;
     }
 
-    public function createComment(LinearConnection $connection, string $commentId, string $issueId, string $body): Comment
+    public function createComment(Connection $connection, string $commentId, string $issueId, string $body): Comment
     {
         $this->record('createComment', ['connection' => $connection, 'commentId' => $commentId, 'issueId' => $issueId, 'body' => $body]);
 
@@ -211,7 +212,7 @@ final class FakeLinearClient extends LinearClient
         return $this->comments[$commentId] = new Comment($commentId, "https://linear.app/fake/comment/{$commentId}");
     }
 
-    public function findComment(LinearConnection $connection, string $id): ?Comment
+    public function findComment(Connection $connection, string $id): ?Comment
     {
         $this->record('findComment', ['connection' => $connection, 'id' => $id]);
 
@@ -221,7 +222,7 @@ final class FakeLinearClient extends LinearClient
     /**
      * Raw GraphQL is not supported by the fake.
      */
-    public function query(LinearConnection $connection, string $query, array $variables = []): array
+    public function query(Connection $connection, string $query, array $variables = []): array
     {
         $this->record('query', ['connection' => $connection, 'query' => $query, 'variables' => $variables]);
 

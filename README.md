@@ -1,6 +1,6 @@
-<p align="center"><img src="art/social.png" alt="Linear SDK for Laravel" width="100%"></p>
+<p align="center"><img src="art/social.png" alt="Linear SDK for PHP" width="100%"></p>
 
-# Linear SDK for Laravel
+# Linear SDK for PHP
 
 > [!NOTE]
 > **This is an unofficial, community-built package. It is not affiliated with, endorsed by, or sponsored by Linear.** "Linear" and the Linear logo are trademarks of Linear. This package simply talks to Linear's public API.
@@ -10,20 +10,67 @@
 [![Code Style](https://img.shields.io/github/actions/workflow/status/dniccum/linear-sdk/fix-php-code-style-issues.yml?branch=main&label=code%20style&style=flat-square)](https://github.com/dniccum/linear-sdk/actions/workflows/fix-php-code-style-issues.yml)
 [![Total Downloads](https://img.shields.io/packagist/dt/dniccum/linear-sdk.svg?style=flat-square)](https://packagist.org/packages/dniccum/linear-sdk)
 
-Create [Linear](https://linear.app) issues from your Eloquent models, the way Laravel Spark handles billing: add a trait to a model, let your users connect their Linear workspace on a ready-made configuration page, and issues are created for you from the model's lifecycle events.
+Create [Linear](https://linear.app) issues from your application's records. In **Laravel** it works the way Laravel Spark handles billing: add a trait to an Eloquent model, let your users connect their Linear workspace on a ready-made configuration page, and issues are created for you from the model's lifecycle events. In **Symfony and any other PHP framework** you get the same API client, OAuth flow and idempotent, retrying sync, wired to your own storage and queue (see [Framework support](#framework-support)).
 
-- **Model traits** that add Linear attributes (`linear_issue_url`, `linear_issue_identifier`, `linear_sync_status`) and tie issue creation to `created`, `updated` and `deleted`.
-- **Optional configuration page** with your own branding: connect (OAuth 2.0 with PKCE, or a personal API key), pick the team, project, status, labels, priority and assignee, and choose automatic or manual sending. Don't want it? Turn it off and build your own UI on the headless [Actions](#building-your-own-ui).
+- **Framework-agnostic core**: the Linear API client, OAuth 2.0 with PKCE, typed DTOs and the issue/comment sync are built on the standalone Illuminate packages (`support`, `http`, `cache`, `contracts`) and Carbon, plus PSR-3 logging and PSR-14 events. They need Laravel's components, not a Laravel application.
+- **First-class Laravel integration**: service provider, `Linear` facade, Eloquent models, queued jobs, `Linear::fake()` and the configuration page. Existing Laravel applications keep working as they are (see [UPGRADING](UPGRADING.md) for the few internals that moved).
+- **Model traits** (Laravel) that add Linear attributes (`linear_issue_url`, `linear_issue_identifier`, `linear_sync_status`) and tie issue creation to `created`, `updated` and `deleted`.
+- **Optional configuration page** (Laravel only) with your own branding: connect (OAuth 2.0 with PKCE, or a personal API key), pick the team, project, status, labels, priority and assignee, and choose automatic or manual sending. Don't want it? Turn it off and build your own UI on the headless [Actions](#building-your-own-ui).
 - **Safe by design**: issues and comments are created from queued jobs with retries, are idempotent (a retry never creates a duplicate), and a failure never breaks the save of your own model.
 - **Fully typed** (PHPStan level 9, strict TypeScript) and tested to 100% coverage.
 
 ## Requirements
 
 - PHP 8.3 or 8.4
-- Laravel 12 or 13
+- **For the Laravel integration:** Laravel 12 or 13
+- **For everything else (Symfony, Slim, plain PHP, ...):** nothing extra. The HTTP client (`illuminate/http`, which uses Guzzle) is installed with the package
 - A Linear workspace, plus either a [Linear OAuth application](https://linear.app/settings/api/applications) or personal API keys
 
-## Installation
+## Framework support
+
+The Laravel **framework** is not a dependency of this package. `composer require dniccum/linear-sdk` installs the standalone Illuminate components the core is built on (`illuminate/support`, `illuminate/http`, `illuminate/cache`, `illuminate/contracts`, ...) and Carbon, which work in any PHP application. Everything that needs a Laravel application (routes, Eloquent models, queued jobs, Blade, the facade) is an adapter that activates when Laravel is present.
+
+| | Laravel | Symfony / other frameworks |
+|---|:-:|:-:|
+| Linear API client: teams, projects, statuses, labels, members, issues, comments, raw GraphQL | ✅ | ✅ |
+| OAuth 2.0 with PKCE, automatic token refresh, personal API keys | ✅ | ✅ [^storage] |
+| Typed DTOs and enums (`Team`, `Project`, `WorkflowState`, `LinearPriority`, ...) | ✅ | ✅ |
+| Idempotent issue and comment sync with retries, backoff and events | ✅ | ✅ [^ports] |
+| Test doubles | `Linear::fake()` | `FakeLinearClient` and the `InMemory*` classes |
+| Service provider, `Linear` facade, `config/linear.php`, migrations | ✅ | ➖ not applicable |
+| Eloquent models and the `HasLinearConnection` / `CreatesLinearIssues` traits | ✅ | ➖ call `LinearIssueSync::handleEvent()` from your ORM's lifecycle events |
+| Queued jobs | ✅ | ➖ run `processIssue()` / `processComment()` from your queue (Messenger, ...) |
+| Headless Actions (`SaveApiKey`, `HandleOAuthCallback`, ...) | ✅ | ➖ use the core services they are built on |
+| **Dedicated configuration page** (Blade views and components, routes, JSON API, branding, back link) | ✅ | ❌ **not available** |
+
+[^storage]: You persist the connection (credentials, status) by implementing the small `Connection` interface on your own entity.
+[^ports]: You supply the storage (`LinearStore`) and the queue (`SyncQueue`); small interfaces with a reference in-memory implementation.
+
+> [!IMPORTANT]
+> **The configuration page is Laravel-only.** It is built from Blade views and components, Laravel routes, middleware, sessions and CSRF, which have no equivalent outside Laravel. In Symfony (or any other framework) build your own screen on top of the core services. Everything it shows is available as typed data, and the page's own JSON contract is documented in [docs/http-contract.md](docs/http-contract.md).
+
+The sections below describe the Laravel integration. For Symfony and other frameworks, see **[docs/frameworks.md](docs/frameworks.md)**, which covers the architecture, wiring the services (with a Symfony walk-through), persisting connections, queueing, and testing.
+
+### A taste of the core, outside Laravel
+
+```php
+use Dniccum\Linear\Data\Destination;
+use Dniccum\Linear\Data\IssuePayload;
+use Dniccum\Linear\LinearConfig;
+use Dniccum\Linear\Services\LinearClient;
+use Dniccum\Linear\Services\LinearOAuth;
+
+// Illuminate's standalone HTTP client; no application needed.
+$http = new Illuminate\Http\Client\Factory;
+
+$config = new LinearConfig(clientId: '...', clientSecret: '...', redirectUri: 'https://app.test/linear/callback');
+$client = new LinearClient($http, new LinearOAuth($http, $config), $config);
+
+$teams = $client->teams($connection);   // $connection implements Dniccum\Linear\Contracts\Connection
+$issue = $client->createIssue($connection, $issueId, new IssuePayload(new Destination($teams[0]->id), 'Title', 'Markdown body'));
+```
+
+## Installation (Laravel)
 
 ```bash
 composer require dniccum/linear-sdk
@@ -65,7 +112,7 @@ If you do not use the built-in page (the `ui` route group is off, or you build y
 
 Make sure a queue worker is running; issues and comments are sent from queued jobs.
 
-## Configuration
+## Configuration (Laravel)
 
 ```env
 LINEAR_AUTH_MODE=oauth            # or api_key
@@ -80,7 +127,7 @@ In `api_key` mode each owner pastes a personal API key (Linear → Settings → 
 
 Every option is documented in [`config/linear.php`](config/linear.php).
 
-## Quick start
+## Quick start (Laravel)
 
 ### 1. Mark the owner
 
@@ -180,7 +227,10 @@ use Dniccum\Linear\Events\{LinearIssueCreated, LinearIssueFailed, LinearCommentD
 Event::listen(LinearIssueCreated::class, fn ($e) => logger($e->link->linear_issue_url));
 ```
 
-## The configuration page
+## The configuration page (Laravel only)
+
+> [!NOTE]
+> This page, its routes and its Blade components exist only in the Laravel integration. See [Framework support](#framework-support).
 
 `GET /linear` renders a standalone, branded page: connection card, destination form (team, project, status, labels, priority, assignee, **automatic / manual**), and a list of recent failures with a retry button.
 
@@ -265,7 +315,7 @@ The three route groups (`ui`, `oauth`, `api`) are independent. To register no ro
 
 ## Building your own UI
 
-Everything the page does is available as headless, typed Actions, and as a documented HTTP contract ([docs/http-contract.md](docs/http-contract.md)). A reference for the data they return, with a worked custom page, is in [docs/custom-ui.md](docs/custom-ui.md).
+In Laravel, everything the page does is available as headless, typed Actions, and as a documented HTTP contract ([docs/http-contract.md](docs/http-contract.md)). A reference for the data they return, with a worked custom page, is in [docs/custom-ui.md](docs/custom-ui.md).
 
 ```php
 use Dniccum\Linear\Actions\{BuildConnectUrl, HandleOAuthCallback, SaveApiKey, DisconnectLinear,
@@ -354,11 +404,11 @@ composer check          # pint, phpstan (level 9), pest with 100% coverage
 npm run typecheck && npm run lint && npm run test:coverage
 ```
 
-CI runs the PHP suite on PHP 8.3/8.4 × Laravel 12/13 × lowest/stable on Linux and Windows, plus PHPStan, Pint and the frontend checks.
+CI runs the PHP suite on PHP 8.3/8.4 × Laravel 12/13 × lowest/stable on Linux and Windows, a separate job that installs the package into an empty project **without the Laravel framework** and files an issue (`tests/Standalone/smoke.php`), plus PHPStan, Pint and the frontend checks. An architecture test fails the build if the core ever uses anything that needs a Laravel application.
 
 ## Changelog
 
-See [CHANGELOG](CHANGELOG.md).
+See [CHANGELOG](CHANGELOG.md). Upgrading from an earlier release? See [UPGRADING](UPGRADING.md).
 
 ## Contributing
 

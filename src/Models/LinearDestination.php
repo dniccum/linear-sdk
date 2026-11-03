@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Dniccum\Linear\Models;
 
 use Carbon\CarbonInterface;
+use Dniccum\Linear\Contracts\Connection;
+use Dniccum\Linear\Contracts\DestinationSettings;
 use Dniccum\Linear\Data\Destination;
 use Dniccum\Linear\Database\Factories\LinearDestinationFactory;
 use Dniccum\Linear\Enums\LinearSendMode;
@@ -40,7 +42,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
  * @property CarbonInterface|null $updated_at
  * @property-read Model|null $owner
  */
-class LinearDestination extends Model
+class LinearDestination extends Model implements DestinationSettings
 {
     /** @use HasFactory<LinearDestinationFactory> */
     use HasFactory;
@@ -90,12 +92,12 @@ class LinearDestination extends Model
      * A destination without a recorded workspace (an unsaved override) applies
      * to whichever workspace the connection belongs to.
      */
-    public function appliesTo(?LinearConnection $connection): bool
+    public function appliesTo(?Connection $connection): bool
     {
         return $this->send_mode === LinearSendMode::Automatic
             && $connection !== null
             && $connection->isActive()
-            && ($this->linear_organization_id === null || $connection->linear_organization_id === $this->linear_organization_id);
+            && ($this->linear_organization_id === null || $connection->organizationId() === $this->linear_organization_id);
     }
 
     public function destination(): Destination

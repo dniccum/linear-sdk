@@ -4,19 +4,20 @@ declare(strict_types=1);
 
 namespace Dniccum\Linear\Services;
 
+use Dniccum\Linear\Contracts\Connection;
 use Dniccum\Linear\Data\Destination;
 use Dniccum\Linear\Data\ResolvedDestination;
+use Dniccum\Linear\Exceptions\InvalidDestinationException;
 use Dniccum\Linear\Exceptions\LinearApiException;
-use Dniccum\Linear\Models\LinearConnection;
-use Illuminate\Validation\ValidationException;
 
 /**
  * Checks a chosen Linear destination against what the connection can actually
  * see right now, so a stale or tampered team, project, status, label or
  * assignee is rejected before anything is saved or queued.
  *
- * Validation errors are keyed by the camelCase field names of the HTTP
- * contract (teamId, projectId, ...).
+ * The errors of an {@see InvalidDestinationException} are keyed by the
+ * camelCase field names of the HTTP contract (teamId, projectId, ...); the
+ * Laravel actions turn them into validation errors.
  */
 class DestinationResolver
 {
@@ -25,9 +26,10 @@ class DestinationResolver
     ) {}
 
     /**
-     * @throws ValidationException
+     * @throws InvalidDestinationException
+     * @throws LinearApiException
      */
-    public function resolve(LinearConnection $connection, Destination $destination): ResolvedDestination
+    public function resolve(Connection $connection, Destination $destination): ResolvedDestination
     {
         try {
             $options = $this->client->teamOptions($connection, $destination->teamId);
@@ -36,7 +38,7 @@ class DestinationResolver
                 throw $e;
             }
 
-            throw ValidationException::withMessages(['teamId' => $e->getMessage()]);
+            throw new InvalidDestinationException(['teamId' => $e->getMessage()]);
         }
 
         $errors = array_filter([
@@ -47,7 +49,7 @@ class DestinationResolver
         ]);
 
         if ($errors !== []) {
-            throw ValidationException::withMessages($errors);
+            throw new InvalidDestinationException($errors);
         }
 
         return new ResolvedDestination($destination, $options->team);
