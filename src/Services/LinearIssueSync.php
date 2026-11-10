@@ -4,6 +4,14 @@ declare(strict_types=1);
 
 namespace Dniccum\Linear\Services;
 
+use Dniccum\Linear\Contracts\CommentDelivery;
+use Dniccum\Linear\Contracts\Connection;
+use Dniccum\Linear\Contracts\ErrorReporter;
+use Dniccum\Linear\Contracts\IssueLink;
+use Dniccum\Linear\Contracts\IssueOwner;
+use Dniccum\Linear\Contracts\IssueSource;
+use Dniccum\Linear\Contracts\LinearStore;
+use Dniccum\Linear\Contracts\SyncQueue;
 use Dniccum\Linear\Data\Comment;
 use Dniccum\Linear\Data\Destination;
 use Dniccum\Linear\Data\Issue;
@@ -13,46 +21,68 @@ use Dniccum\Linear\Enums\LinearSyncStatus;
 use Dniccum\Linear\Events\LinearCommentDelivered;
 use Dniccum\Linear\Events\LinearIssueCreated;
 use Dniccum\Linear\Events\LinearIssueFailed;
+use Dniccum\Linear\Exceptions\DuplicateIssueLinkException;
 use Dniccum\Linear\Exceptions\LinearApiException;
-use Dniccum\Linear\Jobs\CreateLinearIssue;
-use Dniccum\Linear\Jobs\DeliverLinearComment;
-use Dniccum\Linear\Models\LinearCommentDelivery;
-use Dniccum\Linear\Models\LinearConnection;
-use Dniccum\Linear\Models\LinearIssueLink;
+use Dniccum\Linear\LinearConfig;
 use Dniccum\Linear\Support\Json;
-use Dniccum\Linear\Support\ModelHooks;
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\UniqueConstraintViolationException;
+use Dniccum\Linear\Support\LogErrorReporter;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
+use Psr\EventDispatcher\EventDispatcherInterface;
+use Throwable;
 
 /**
- * Files models as Linear issues and mirrors later events as comments.
+ * Files records as Linear issues and mirrors later events as comments.
  *
  * Every outbound write is recorded before it is queued, carries a
  * client-generated Linear ID, and is looked up before being re-sent, so a
- * model is filed at most once and each comment is posted at most once no
+ * record is filed at most once and each comment is posted at most once no
  * matter how many times a job is retried.
+ *
+ * Framework-agnostic: records are {@see IssueSource}s, state lives behind the
+ * {@see LinearStore} and background work behind the {@see SyncQueue}. A worker
+ * calls {@see self::processIssue()} and {@see self::processComment()}.
  */
 class LinearIssueSync
 {
     /**
-     * The snake_case destination fields `sendToLinear()` overrides accept.
+     * How many times a job is attempted before the work is marked failed.
+     */
+    public const int MAX_ATTEMPTS = 5;
+
+    /**
+     * Seconds to wait before attempt 2, 3, 4 and 5 (the last value repeats).
+     *
+     * @var list<int>
+     */
+    public const array BACKOFF = [30, 120, 600, 1800];
+
+    /**
+     * The snake_case destination fields `sendManually()` overrides accept.
      *
      * @var list<string>
      */
     protected const array DESTINATION_FIELDS = ['team_id', 'project_id', 'state_id', 'label_ids', 'priority', 'assignee_id'];
 
+    protected ErrorReporter $reporter;
+
     public function __construct(
         protected LinearClient $client,
-        protected IssueComposer $composer,
-    ) {}
+        protected LinearStore $store,
+        protected SyncQueue $queue,
+        protected LinearConfig $config,
+        protected ?EventDispatcherInterface $events = null,
+        ?ErrorReporter $reporter = null,
+    ) {
+        $this->reporter = $reporter ?? new LogErrorReporter;
+    }
 
     /**
-     * React to an Eloquent lifecycle event on a source model. Called by the
-     * model observer once the model's `linearEvents()` includes the event.
+     * React to a lifecycle event ("created", "updated" or "deleted") on a
+     * source record. Call it once the record's own settings say the event
+     * should act on Linear.
      */
-    public function handleEvent(Model $source, string $event): void
+    public function handleEvent(IssueSource $source, string $event): void
     {
         match ($event) {
             'created' => $this->fileAutomatically($source),
@@ -63,31 +93,31 @@ class LinearIssueSync
     }
 
     /**
-     * File a newly created model through its owner's destination, if that is
+     * File a newly created record through its owner's destination, if that is
      * set to send automatically and the owner's connection can use it.
      */
-    public function fileAutomatically(Model $source): ?LinearIssueLink
+    public function fileAutomatically(IssueSource $source): ?IssueLink
     {
-        $owner = ModelHooks::owner($source);
+        $owner = $source->owner();
 
         if ($owner === null) {
             return null;
         }
 
-        $connection = ModelHooks::connection($owner);
-        $destination = ModelHooks::destinationOverride($source) ?? ModelHooks::destination($owner);
+        $connection = $owner->connection();
+        $destination = $source->destinationOverride() ?? $owner->destination();
 
         if ($connection === null || $destination === null || ! $destination->appliesTo($connection)) {
             return null;
         }
 
         // Title and description are composed on the first push, once the
-        // model's related records have been stored alongside it.
+        // record's related data has been stored alongside it.
         return $this->createLink($source, $owner, $connection, LinearIssueSource::Automatic, new IssuePayload($destination->destination()));
     }
 
     /**
-     * File a model with a destination and content chosen by the caller. An
+     * File a record with a destination and content chosen by the caller. An
      * existing link must have failed; it is reused so its issue ID carries
      * over. If Linear turns out to have created that issue after all, it is
      * adopted (check isSynced() on the result) and the new payload is not
@@ -97,12 +127,12 @@ class LinearIssueSync
      *
      * @throws LinearApiException
      */
-    public function sendManually(Model $source, array $overrides = []): LinearIssueLink
+    public function sendManually(IssueSource $source, array $overrides = []): IssueLink
     {
-        $owner = ModelHooks::owner($source)
+        $owner = $source->owner()
             ?? throw new LinearApiException('This record has no Linear owner, so there is no connection to send it through.', LinearApiException::INVALID_REQUEST);
 
-        $connection = ModelHooks::connection($owner) ?? throw LinearApiException::notConnected();
+        $connection = $owner->connection() ?? throw LinearApiException::notConnected();
 
         if (! $connection->isActive()) {
             throw new LinearApiException('Your Linear connection needs to be reauthorized. Reconnect Linear to continue.', LinearApiException::AUTHENTICATION);
@@ -110,16 +140,16 @@ class LinearIssueSync
 
         $link = $this->linkFor($source);
 
-        if ($link !== null && $link->status !== LinearSyncStatus::Failed) {
+        if ($link !== null && $link->syncStatus() !== LinearSyncStatus::Failed) {
             throw new LinearApiException(
                 $link->isSynced()
-                    ? "This record is already linked to {$link->linear_issue_identifier}."
+                    ? 'This record is already linked to '.$this->identifier($link).'.'
                     : 'A Linear issue is already being created for this record.',
                 LinearApiException::INVALID_REQUEST,
             );
         }
 
-        $base = (ModelHooks::destinationOverride($source) ?? ModelHooks::destination($owner))?->destination();
+        $base = ($source->destinationOverride() ?? $owner->destination())?->destination();
         $destination = Destination::fromArray([
             ...($base?->toArray() ?? []),
             ...Arr::only($overrides, self::DESTINATION_FIELDS),
@@ -131,15 +161,15 @@ class LinearIssueSync
 
         return $this->fileManually($source, $owner, $connection, new IssuePayload(
             $destination,
-            Json::nullableString($overrides['title'] ?? null) ?? $this->composer->title($source),
-            is_string($overrides['description'] ?? null) ? $overrides['description'] : $this->composer->description($source),
+            Json::nullableString($overrides['title'] ?? null) ?? $source->title(),
+            is_string($overrides['description'] ?? null) ? $overrides['description'] : $source->description(),
         ));
     }
 
     /**
      * @throws LinearApiException
      */
-    public function fileManually(Model $source, Model $owner, LinearConnection $connection, IssuePayload $payload): LinearIssueLink
+    public function fileManually(IssueSource $source, IssueOwner $owner, Connection $connection, IssuePayload $payload): IssueLink
     {
         $link = $this->linkFor($source);
 
@@ -147,15 +177,17 @@ class LinearIssueSync
             return $this->createLink($source, $owner, $connection, LinearIssueSource::Manual, $payload);
         }
 
+        $newIssueId = null;
+
         // Filing into a different workspace than the failed attempt starts
         // over: the old issue ID can only ever exist in the old workspace.
-        if ($link->linear_organization_id !== $connection->linear_organization_id) {
-            $link->forceFill(['linear_issue_id' => (string) Str::uuid(), 'attempts' => 0]);
-        } elseif ($link->attempts > 0) {
+        if ($link->organizationId() !== $connection->organizationId()) {
+            $newIssueId = (string) Str::uuid();
+        } elseif ($link->attemptCount() > 0) {
             // An earlier attempt may have created the issue before its
             // response was lost. Adopt it as-is rather than accepting new
             // content and a destination that would never be applied.
-            $issue = $this->client->findIssue($connection, $link->linear_issue_id);
+            $issue = $this->client->findIssue($connection, $link->issueId());
 
             if ($issue !== null) {
                 $this->markIssueSynced($link, $connection, $issue);
@@ -164,63 +196,43 @@ class LinearIssueSync
             }
         }
 
-        $link->forceFill([
-            'owner_type' => $owner->getMorphClass(),
-            'owner_id' => $owner->getKey(),
-            'connection_id' => $connection->id,
-            'linear_organization_id' => $connection->linear_organization_id,
-            'source' => LinearIssueSource::Manual,
-            'status' => LinearSyncStatus::Pending,
-            'payload' => $payload,
-            'last_error' => null,
-        ])->save();
+        $link->restart($owner, $connection, LinearIssueSource::Manual, $payload, $newIssueId);
 
-        CreateLinearIssue::dispatch($link->id)->afterCommit();
+        $this->queue->issue($link, afterCommit: true);
 
         return $link;
     }
 
     /**
-     * The issue link of a source model, if it has one.
+     * The issue link of a source record, if it has one.
      */
-    public function linkFor(Model $source): ?LinearIssueLink
+    public function linkFor(IssueSource $source): ?IssueLink
     {
-        return LinearIssueLink::query()->whereMorphedTo('linkable', $source)->first();
+        return $this->store->linkFor($source);
     }
 
     /**
-     * Queue a comment for the issue linked to a source model. Returns null
-     * when the model has no issue. Comments on an issue that is still being
+     * Queue a comment for the issue linked to a source record. Returns null
+     * when the record has no issue. Comments on an issue that is still being
      * filed wait until it exists.
      *
-     * Pass the model the comment originates from (a reply, a note) as
+     * Pass the record the comment originates from (a reply, a note) as
      * `$origin` to make delivery idempotent: each origin is posted at most
      * once, however often this is called for it.
      */
-    public function comment(Model $source, string $body, ?Model $origin = null): ?LinearCommentDelivery
+    public function comment(IssueSource $source, string $body, ?IssueSource $origin = null): ?CommentDelivery
     {
         $link = $this->linkFor($source);
 
         return $link === null ? null : $this->queueComment($link, $body, $origin);
     }
 
-    public function queueComment(LinearIssueLink $link, string $body, ?Model $origin = null): LinearCommentDelivery
+    public function queueComment(IssueLink $link, string $body, ?IssueSource $origin = null): CommentDelivery
     {
-        $attributes = [
-            'linear_issue_link_id' => $link->id,
-            'linear_comment_id' => (string) Str::uuid(),
-            'body' => $body,
-        ];
+        $delivery = $this->store->createDelivery($link, (string) Str::uuid(), $body, $origin);
 
-        $delivery = $origin === null
-            ? LinearCommentDelivery::query()->create($attributes)
-            : LinearCommentDelivery::query()->firstOrCreate(
-                ['source_type' => $origin->getMorphClass(), 'source_id' => $origin->getKey()],
-                $attributes,
-            );
-
-        if ($delivery->wasRecentlyCreated && $link->isSynced()) {
-            DeliverLinearComment::dispatch($delivery->id)->afterCommit();
+        if ($delivery->wasJustQueued() && $link->isSynced()) {
+            $this->queue->comment($delivery, afterCommit: true);
         }
 
         return $delivery;
@@ -231,18 +243,18 @@ class LinearIssueSync
      * comments once the issue exists. Work still pending already has a queued
      * attempt and is left alone so retries never run concurrently.
      */
-    public function retry(LinearIssueLink $link): void
+    public function retry(IssueLink $link): void
     {
-        if ($link->status === LinearSyncStatus::Failed) {
-            $link->forceFill(['status' => LinearSyncStatus::Pending, 'last_error' => null])->save();
+        if ($link->syncStatus() === LinearSyncStatus::Failed) {
+            $link->requeue();
 
             // Comments that failed alongside the issue (e.g. on disconnect) go
             // out once it is created.
-            $link->commentDeliveries()
-                ->where('status', LinearSyncStatus::Failed)
-                ->update(['status' => LinearSyncStatus::Pending, 'last_error' => null]);
+            foreach ($this->store->deliveries($link, LinearSyncStatus::Failed) as $delivery) {
+                $delivery->requeue();
+            }
 
-            CreateLinearIssue::dispatch($link->id);
+            $this->queue->issue($link);
 
             return;
         }
@@ -251,13 +263,131 @@ class LinearIssueSync
             return;
         }
 
-        $failed = $link->commentDeliveries()->where('status', LinearSyncStatus::Failed)->get();
+        foreach ($this->store->deliveries($link, LinearSyncStatus::Failed) as $delivery) {
+            $delivery->requeue();
 
-        foreach ($failed as $delivery) {
-            $delivery->forceFill(['status' => LinearSyncStatus::Pending, 'last_error' => null])->save();
-
-            DeliverLinearComment::dispatch($delivery->id);
+            $this->queue->comment($delivery);
         }
+    }
+
+    /**
+     * What a worker does with a queued "create this issue" message. Returns
+     * the number of seconds to wait before trying again, or null when the
+     * work is done (or failed for good, or no longer needed).
+     *
+     * @param  int  $attempt  Which attempt this is, starting at 1.
+     */
+    public function processIssue(int|string $linkId, int $attempt = 1, int $maxAttempts = self::MAX_ATTEMPTS): ?int
+    {
+        $link = $this->store->findLink($linkId);
+
+        // Only pending work is sent. A link marked failed (for example by a
+        // disconnect) waits for an explicit retry, even if a message was
+        // already queued.
+        if ($link === null || $link->syncStatus() !== LinearSyncStatus::Pending) {
+            return null;
+        }
+
+        try {
+            $this->pushIssue($link);
+        } catch (Throwable $e) {
+            $final = ! $this->isRetryable($e) || $attempt >= $maxAttempts;
+
+            $this->recordIssueFailure($link, self::describe($e), $final);
+
+            return $final ? null : self::backoff($attempt);
+        }
+
+        return null;
+    }
+
+    /**
+     * What a worker does with a queued "post this comment" message; see
+     * {@see self::processIssue()}.
+     *
+     * @param  int  $attempt  Which attempt this is, starting at 1.
+     */
+    public function processComment(int|string $deliveryId, int $attempt = 1, int $maxAttempts = self::MAX_ATTEMPTS): ?int
+    {
+        $delivery = $this->store->findDelivery($deliveryId);
+
+        // Only pending work is sent; see processIssue().
+        if ($delivery === null || $delivery->syncStatus() !== LinearSyncStatus::Pending) {
+            return null;
+        }
+
+        try {
+            $this->pushComment($delivery);
+        } catch (Throwable $e) {
+            $final = ! $this->isRetryable($e) || $attempt >= $maxAttempts;
+
+            $this->recordCommentFailure($delivery, self::describe($e), $final);
+
+            return $final ? null : self::backoff($attempt);
+        }
+
+        return null;
+    }
+
+    /**
+     * A worker gave up on an issue message (its retries ran out, or the
+     * message could not be processed at all): mark the link failed unless it
+     * made it to Linear after all.
+     */
+    public function failIssue(int|string $linkId, ?Throwable $exception = null): void
+    {
+        $link = $this->store->findLink($linkId);
+
+        if ($link !== null && ! $link->isSynced()) {
+            $this->recordIssueFailure($link, self::describe($exception), true);
+        }
+    }
+
+    /**
+     * A worker gave up on a comment message; see {@see self::failIssue()}.
+     */
+    public function failComment(int|string $deliveryId, ?Throwable $exception = null): void
+    {
+        $delivery = $this->store->findDelivery($deliveryId);
+
+        if ($delivery !== null && $delivery->syncStatus() !== LinearSyncStatus::Synced) {
+            $this->recordCommentFailure($delivery, self::describe($exception), true);
+        }
+    }
+
+    /**
+     * Whether trying again could help. Unexpected exceptions are reported
+     * and treated as transient.
+     */
+    public function isRetryable(?Throwable $e): bool
+    {
+        if ($e instanceof LinearApiException) {
+            return $e->isRetryable();
+        }
+
+        if ($e !== null) {
+            $this->reporter->report($e);
+        }
+
+        return true;
+    }
+
+    /**
+     * What to record, and show users, for a failure.
+     */
+    public static function describe(?Throwable $e): string
+    {
+        return $e instanceof LinearApiException
+            ? $e->getMessage()
+            : 'Something went wrong while syncing with Linear. Try again shortly.';
+    }
+
+    /**
+     * Seconds to wait after the given (1-based) attempt failed.
+     */
+    public static function backoff(int $attempt): int
+    {
+        return self::BACKOFF[$attempt - 1] ?? self::BACKOFF[array_key_last(self::BACKOFF)];
     }
 
     /**
@@ -266,7 +396,7 @@ class LinearIssueSync
      *
      * @throws LinearApiException
      */
-    public function pushIssue(LinearIssueLink $link): void
+    public function pushIssue(IssueLink $link): void
     {
         if ($link->isSynced()) {
             return;
@@ -275,9 +405,9 @@ class LinearIssueSync
         $connection = $this->connectionFor($link);
         $payload = $this->completePayload($link);
 
-        $issue = $link->attempts > 0 ? $this->client->findIssue($connection, $link->linear_issue_id) : null;
+        $issue = $link->attemptCount() > 0 ? $this->client->findIssue($connection, $link->issueId()) : null;
 
-        $link->increment('attempts');
+        $link->recordAttempt();
 
         $issue ??= $this->createIssue($connection, $link, $payload);
 
@@ -290,69 +420,66 @@ class LinearIssueSync
      *
      * @throws LinearApiException
      */
-    public function pushComment(LinearCommentDelivery $delivery): void
+    public function pushComment(CommentDelivery $delivery): void
     {
-        $link = $delivery->issueLink;
+        $link = $delivery->parentLink();
 
         // Delivered already, or the issue isn't filed yet; pushIssue() queues
         // this delivery once it is.
-        if ($delivery->status === LinearSyncStatus::Synced || ! $link->isSynced()) {
+        if ($delivery->syncStatus() === LinearSyncStatus::Synced || ! $link->isSynced()) {
             return;
         }
 
         $connection = $this->connectionFor($link);
 
-        $alreadyPosted = $delivery->attempts > 0
-            && $this->client->findComment($connection, $delivery->linear_comment_id) !== null;
+        $alreadyPosted = $delivery->attemptCount() > 0
+            && $this->client->findComment($connection, $delivery->commentId()) !== null;
 
-        $delivery->increment('attempts');
+        $delivery->recordAttempt();
 
         if (! $alreadyPosted) {
             $this->createComment($connection, $link, $delivery);
         }
 
-        $delivery->forceFill([
-            'status' => LinearSyncStatus::Synced,
-            'last_error' => null,
-            'delivered_at' => now(),
-        ])->save();
+        $delivery->markDelivered();
 
         $connection->markSynced();
 
-        event(new LinearCommentDelivered($delivery));
+        $this->dispatch(new LinearCommentDelivered($delivery));
     }
 
-    public function recordIssueFailure(LinearIssueLink $link, string $message, bool $final): void
+    public function recordIssueFailure(IssueLink $link, string $message, bool $final): void
     {
-        $link->forceFill([
-            'status' => $final ? LinearSyncStatus::Failed : $link->status,
-            'last_error' => $message,
-        ])->save();
+        if ($final) {
+            $link->markFailed($message);
+        } else {
+            $link->recordError($message);
+        }
 
         $this->recordConnectionFailure($link, $message);
 
         if ($final) {
-            event(new LinearIssueFailed($link, $message));
+            $this->dispatch(new LinearIssueFailed($link, $message));
         }
     }
 
-    public function recordCommentFailure(LinearCommentDelivery $delivery, string $message, bool $final): void
+    public function recordCommentFailure(CommentDelivery $delivery, string $message, bool $final): void
     {
-        $delivery->forceFill([
-            'status' => $final ? LinearSyncStatus::Failed : $delivery->status,
-            'last_error' => $message,
-        ])->save();
+        if ($final) {
+            $delivery->markFailed($message);
+        } else {
+            $delivery->recordError($message);
+        }
 
-        $this->recordConnectionFailure($delivery->issueLink, $message);
+        $this->recordConnectionFailure($delivery->parentLink(), $message);
     }
 
     /**
-     * A model that already has an issue: post a comment listing what changed
-     * when `linear.on_update` says so. A model without one is filed now (a
-     * model whose `linearEvents()` lists only "updated" is filed on its first
-     * save).
+     * A record that already has an issue: post a comment listing what changed
+     * when `on_update` says so. A record without one is filed now (a record
+     * whose events list only "updated" is filed on its first save).
      */
-    protected function handleUpdated(Model $source): void
+    protected function handleUpdated(IssueSource $source): void
     {
         $link = $this->linkFor($source);
 
@@ -362,64 +489,45 @@ class LinearIssueSync
             return;
         }
 
-        $changes = Arr::except($source->getChanges(), array_values(array_filter([$source->getUpdatedAtColumn()], fn (?string $column): bool => $column !== null)));
+        $changes = $source->changes();
 
-        if (config('linear.on_update') === 'comment' && $changes !== []) {
-            $this->queueComment($link, $this->composer->comment($source, 'updated', ['changes' => $changes]));
+        if ($this->config->onUpdate === 'comment' && $changes !== []) {
+            $this->queueComment($link, $source->comment('updated', ['changes' => $changes]));
         }
     }
 
-    protected function handleDeleted(Model $source): void
+    protected function handleDeleted(IssueSource $source): void
     {
         $link = $this->linkFor($source);
 
-        if ($link !== null && config('linear.on_delete') === 'comment') {
-            $this->queueComment($link, $this->composer->comment($source, 'deleted'));
+        if ($link !== null && $this->config->onDelete === 'comment') {
+            $this->queueComment($link, $source->comment('deleted'));
         }
     }
 
-    protected function markIssueSynced(LinearIssueLink $link, LinearConnection $connection, Issue $issue): void
+    protected function markIssueSynced(IssueLink $link, Connection $connection, Issue $issue): void
     {
-        $link->forceFill([
-            'connection_id' => $connection->id,
-            'status' => LinearSyncStatus::Synced,
-            'linear_issue_identifier' => $issue->identifier,
-            'linear_issue_url' => $issue->url,
-            'last_error' => null,
-            'synced_at' => now(),
-        ])->save();
+        $link->markSynced($connection, $issue);
 
         $connection->markSynced();
 
-        $waiting = $link->commentDeliveries()->where('status', LinearSyncStatus::Pending)->orderBy('id')->get();
-
-        foreach ($waiting as $delivery) {
-            DeliverLinearComment::dispatch($delivery->id);
+        foreach ($this->store->deliveries($link, LinearSyncStatus::Pending) as $delivery) {
+            $this->queue->comment($delivery);
         }
 
-        event(new LinearIssueCreated($link));
+        $this->dispatch(new LinearIssueCreated($link));
     }
 
-    protected function createLink(Model $source, Model $owner, LinearConnection $connection, LinearIssueSource $sourceKind, IssuePayload $payload): LinearIssueLink
+    protected function createLink(IssueSource $source, IssueOwner $owner, Connection $connection, LinearIssueSource $kind, IssuePayload $payload): IssueLink
     {
         try {
-            $link = LinearIssueLink::query()->create([
-                'linkable_type' => $source->getMorphClass(),
-                'linkable_id' => $source->getKey(),
-                'owner_type' => $owner->getMorphClass(),
-                'owner_id' => $owner->getKey(),
-                'connection_id' => $connection->id,
-                'linear_organization_id' => $connection->linear_organization_id,
-                'source' => $sourceKind,
-                'linear_issue_id' => (string) Str::uuid(),
-                'payload' => $payload,
-            ]);
-        } catch (UniqueConstraintViolationException) {
-            // Another process linked this model first.
-            return LinearIssueLink::query()->whereMorphedTo('linkable', $source)->firstOrFail();
+            $link = $this->store->createLink($source, $owner, $connection, $kind, (string) Str::uuid(), $payload);
+        } catch (DuplicateIssueLinkException) {
+            // Another process linked this record first.
+            return $this->store->linkFor($source) ?? throw new DuplicateIssueLinkException;
         }
 
-        CreateLinearIssue::dispatch($link->id)->afterCommit();
+        $this->queue->issue($link, afterCommit: true);
 
         return $link;
     }
@@ -432,16 +540,15 @@ class LinearIssueSync
      *
      * @throws LinearApiException
      */
-    protected function connectionFor(LinearIssueLink $link): LinearConnection
+    protected function connectionFor(IssueLink $link): Connection
     {
-        $owner = $link->owner;
-        $connection = $owner === null ? null : ModelHooks::connection($owner);
+        $connection = $this->store->connectionFor($link);
 
         if ($connection === null) {
             throw LinearApiException::notConnected();
         }
 
-        if ($connection->linear_organization_id !== $link->linear_organization_id) {
+        if ($connection->organizationId() !== $link->organizationId()) {
             throw new LinearApiException(
                 'The connected Linear workspace is not the one this issue was filed in. Reconnect that workspace to continue.',
                 LinearApiException::INVALID_REQUEST,
@@ -457,17 +564,17 @@ class LinearIssueSync
      *
      * @throws LinearApiException
      */
-    protected function completePayload(LinearIssueLink $link): IssuePayload
+    protected function completePayload(IssueLink $link): IssuePayload
     {
-        $payload = $link->payload;
+        $payload = $link->issuePayload();
 
         if (! $payload->hasContent()) {
-            $source = $link->linkable
+            $source = $this->store->sourceFor($link)
                 ?? throw new LinearApiException('The record this issue was created for no longer exists.', LinearApiException::INVALID_REQUEST);
 
-            $payload = $payload->withContent($this->composer->title($source), $this->composer->description($source));
+            $payload = $payload->withContent($source->title(), $source->description());
 
-            $link->forceFill(['payload' => $payload])->save();
+            $link->freezePayload($payload);
         }
 
         return $payload;
@@ -476,14 +583,14 @@ class LinearIssueSync
     /**
      * @throws LinearApiException
      */
-    protected function createIssue(LinearConnection $connection, LinearIssueLink $link, IssuePayload $payload): Issue
+    protected function createIssue(Connection $connection, IssueLink $link, IssuePayload $payload): Issue
     {
         try {
-            return $this->client->createIssue($connection, $link->linear_issue_id, $payload);
+            return $this->client->createIssue($connection, $link->issueId(), $payload);
         } catch (LinearApiException $e) {
             // A concurrent attempt may have won with the same issue ID.
             if ($e->reason === LinearApiException::INVALID_REQUEST
-                && ($issue = $this->client->findIssue($connection, $link->linear_issue_id)) !== null) {
+                && ($issue = $this->client->findIssue($connection, $link->issueId())) !== null) {
                 return $issue;
             }
 
@@ -494,13 +601,13 @@ class LinearIssueSync
     /**
      * @throws LinearApiException
      */
-    protected function createComment(LinearConnection $connection, LinearIssueLink $link, LinearCommentDelivery $delivery): Comment
+    protected function createComment(Connection $connection, IssueLink $link, CommentDelivery $delivery): Comment
     {
         try {
-            return $this->client->createComment($connection, $delivery->linear_comment_id, $link->linear_issue_id, $delivery->body);
+            return $this->client->createComment($connection, $delivery->commentId(), $link->issueId(), $delivery->commentBody());
         } catch (LinearApiException $e) {
             if ($e->reason === LinearApiException::INVALID_REQUEST
-                && ($comment = $this->client->findComment($connection, $delivery->linear_comment_id)) !== null) {
+                && ($comment = $this->client->findComment($connection, $delivery->commentId())) !== null) {
                 return $comment;
             }
 
@@ -508,13 +615,25 @@ class LinearIssueSync
         }
     }
 
-    protected function recordConnectionFailure(LinearIssueLink $link, string $message): void
+    protected function recordConnectionFailure(IssueLink $link, string $message): void
     {
-        $owner = $link->owner;
-        $connection = $owner === null ? null : ModelHooks::connection($owner);
+        $connection = $this->store->connectionFor($link);
 
-        if ($connection !== null && $connection->linear_organization_id === $link->linear_organization_id && $connection->isActive()) {
+        if ($connection !== null && $connection->organizationId() === $link->organizationId() && $connection->isActive()) {
             $connection->markFailed($message);
         }
+    }
+
+    /**
+     * The identifier of a synced link's issue, for messages.
+     */
+    private function identifier(IssueLink $link): string
+    {
+        return $link->issueIdentifier() ?? $link->issueId();
+    }
+
+    private function dispatch(object $event): void
+    {
+        $this->events?->dispatch($event);
     }
 }

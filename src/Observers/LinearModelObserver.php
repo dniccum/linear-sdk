@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Dniccum\Linear\Observers;
 
-use Dniccum\Linear\Services\LinearIssueSync;
+use Dniccum\Linear\Laravel\EloquentSync;
 use Dniccum\Linear\Support\ModelHooks;
 use Illuminate\Database\Eloquent\Model;
 use Throwable;
@@ -36,7 +36,7 @@ final readonly class LinearModelObserver
     {
         try {
             if (in_array($event, ModelHooks::events($model), true)) {
-                app(LinearIssueSync::class)->handleEvent($model, $event);
+                app(EloquentSync::class)->handleEvent($model, $event);
             }
         } catch (Throwable $e) {
             report($e);

@@ -10,10 +10,10 @@ use Dniccum\Linear\Data\Settings\BackData;
 use Dniccum\Linear\Data\Settings\SettingsData;
 use Dniccum\Linear\Enums\LinearAuthMode;
 use Dniccum\Linear\Exceptions\LinearApiException;
+use Dniccum\Linear\Laravel\EloquentSync;
 use Dniccum\Linear\Models\LinearCommentDelivery;
 use Dniccum\Linear\Services\ConnectionClient;
 use Dniccum\Linear\Services\LinearClient;
-use Dniccum\Linear\Services\LinearIssueSync;
 use Dniccum\Linear\Support\Json;
 use Dniccum\Linear\Support\ModelHooks;
 use Dniccum\Linear\Testing\LinearFake;
@@ -217,7 +217,7 @@ class Linear
      */
     public function comment(Model $source, string $body, ?Model $origin = null): ?LinearCommentDelivery
     {
-        return $this->app->make(LinearIssueSync::class)->comment($source, $body, $origin);
+        return $this->app->make(EloquentSync::class)->comment($source, $body, $origin);
     }
 
     /**
@@ -237,7 +237,9 @@ class Linear
      */
     public function authMode(): LinearAuthMode
     {
-        return LinearAuthMode::configured();
+        $mode = config('linear.auth_mode');
+
+        return is_string($mode) ? (LinearAuthMode::tryFrom($mode) ?? LinearAuthMode::OAuth) : LinearAuthMode::OAuth;
     }
 
     /**

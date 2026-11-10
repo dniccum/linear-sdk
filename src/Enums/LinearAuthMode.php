@@ -16,14 +16,4 @@ enum LinearAuthMode: string
     case OAuth = 'oauth';
     case ApiKey = 'api_key';
 
-    /**
-     * The mode selected by `linear.auth_mode`; anything unrecognised means
-     * OAuth.
-     */
-    public static function configured(): self
-    {
-        $mode = config('linear.auth_mode');
-
-        return is_string($mode) ? (self::tryFrom($mode) ?? self::OAuth) : self::OAuth;
-    }
 }

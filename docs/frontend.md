@@ -1,5 +1,8 @@
 # Front-end development
 
+> [!NOTE]
+> The configuration page is part of the Laravel integration only. It is rendered by Blade views and components and served by Laravel routes (see [Framework support](../README.md#framework-support)).
+
 The configuration page is a small TypeScript application built with [Alpine.js](https://alpinejs.dev) and [Vite](https://vite.dev). The Blade view renders a mount element plus the page's data as JSON; the bundle in `public/build` takes it from there. Everything it needs from the server is described in [`docs/http-contract.md`](http-contract.md).
 
 - [Stack and requirements](#stack-and-requirements)

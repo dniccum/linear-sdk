@@ -11,10 +11,10 @@ use Dniccum\Linear\Data\TeamOptions;
 use Dniccum\Linear\Data\Tokens;
 use Dniccum\Linear\Data\Viewer;
 use Dniccum\Linear\Exceptions\LinearApiException;
+use Dniccum\Linear\LinearConfig;
 use Dniccum\Linear\Services\LinearClient;
 use Dniccum\Linear\Services\LinearOAuth;
 use Illuminate\Contracts\Foundation\Application;
-use Illuminate\Http\Client\Factory as HttpFactory;
 use PHPUnit\Framework\Assert;
 
 /**
@@ -52,9 +52,9 @@ final class LinearFake
             $config->set('linear.client_secret', 'fake-client-secret');
         }
 
-        $http = $app->make(HttpFactory::class);
-        $oauth = new FakeLinearOAuth($http);
-        $client = new FakeLinearClient($http, $oauth);
+        $linearConfig = $app->make(LinearConfig::class);
+        $oauth = new FakeLinearOAuth($linearConfig);
+        $client = new FakeLinearClient($oauth, $linearConfig);
 
         $app->instance(LinearOAuth::class, $oauth);
         $app->instance(LinearClient::class, $client);

@@ -1,5 +1,8 @@
 # Building your own UI
 
+> [!NOTE]
+> This guide is for the Laravel integration. The data objects and the core services it builds on also work in other frameworks (see [Using Linear SDK outside Laravel](frameworks.md)), but the Actions, the HTTP routes and the bundled configuration page it mentions are Laravel-only.
+
 The bundled configuration page is optional. Everything it shows comes from typed, headless pieces you can use directly: the [Actions](../README.md#building-your-own-ui) return readonly data objects (DTOs), and the same data is served as JSON by the [HTTP contract](http-contract.md). This page documents that data (including the visuals Linear sends: colours, icons, avatars) and walks through a complete custom page that does not load the bundled JavaScript at all.
 
 - [Where the data comes from](#where-the-data-comes-from)

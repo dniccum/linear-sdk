@@ -4,9 +4,6 @@ declare(strict_types=1);
 
 namespace Dniccum\Linear\Jobs;
 
-use Dniccum\Linear\Enums\LinearSyncStatus;
-use Dniccum\Linear\Exceptions\LinearApiException;
-use Dniccum\Linear\Models\LinearIssueLink;
 use Dniccum\Linear\Services\LinearIssueSync;
 use Dniccum\Linear\Support\Json;
 use Illuminate\Bus\Queueable;
@@ -20,7 +17,8 @@ use Throwable;
  *
  * Retryable failures (rate limits, outages) release the job with a backoff;
  * permanent ones (revoked access, a deleted team) mark the link failed
- * straight away so the cause can be fixed and the issue retried.
+ * straight away so the cause can be fixed and the issue retried. The work
+ * itself is {@see LinearIssueSync::processIssue()}.
  */
 class CreateLinearIssue implements ShouldQueue
 {
@@ -28,12 +26,12 @@ class CreateLinearIssue implements ShouldQueue
     use InteractsWithQueue;
     use Queueable;
 
-    public int $tries = 5;
+    public int $tries = LinearIssueSync::MAX_ATTEMPTS;
 
     /**
      * @var list<int>
      */
-    public array $backoff = [30, 120, 600, 1800];
+    public array $backoff = LinearIssueSync::BACKOFF;
 
     public function __construct(
         public int $linearIssueLinkId,
@@ -44,35 +42,16 @@ class CreateLinearIssue implements ShouldQueue
 
     public function handle(LinearIssueSync $sync): void
     {
-        $link = LinearIssueLink::query()->find($this->linearIssueLinkId);
+        $delay = $sync->processIssue($this->linearIssueLinkId, $this->attempts(), $this->tries);
 
-        // Only pending work is sent. A link marked failed (for example by a
-        // disconnect) waits for an explicit retry, even if this job was
-        // already queued.
-        if ($link === null || $link->status !== LinearSyncStatus::Pending) {
-            return;
-        }
-
-        try {
-            $sync->pushIssue($link);
-        } catch (Throwable $e) {
-            $final = ! self::isRetryable($e) || $this->attempts() >= $this->tries;
-
-            $sync->recordIssueFailure($link, self::describe($e), $final);
-
-            if (! $final) {
-                $this->release($this->backoff[$this->attempts() - 1] ?? 1800);
-            }
+        if ($delay !== null) {
+            $this->release($this->backoff[$this->attempts() - 1] ?? $delay);
         }
     }
 
     public function failed(?Throwable $exception): void
     {
-        $link = LinearIssueLink::query()->find($this->linearIssueLinkId);
-
-        if ($link !== null && ! $link->isSynced()) {
-            app(LinearIssueSync::class)->recordIssueFailure($link, self::describe($exception), true);
-        }
+        app(LinearIssueSync::class)->failIssue($this->linearIssueLinkId, $exception);
     }
 
     /**
@@ -80,21 +59,11 @@ class CreateLinearIssue implements ShouldQueue
      */
     public static function isRetryable(?Throwable $e): bool
     {
-        if ($e instanceof LinearApiException) {
-            return $e->isRetryable();
-        }
-
-        if ($e !== null) {
-            report($e);
-        }
-
-        return true;
+        return app(LinearIssueSync::class)->isRetryable($e);
     }
 
     public static function describe(?Throwable $e): string
     {
-        return $e instanceof LinearApiException
-            ? $e->getMessage()
-            : 'Something went wrong while syncing with Linear. Try again shortly.';
+        return LinearIssueSync::describe($e);
     }
 }

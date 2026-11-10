@@ -41,7 +41,7 @@ class BuildSettings
     {
         $connection = ModelHooks::connection($owner);
         $destination = ModelHooks::destination($owner);
-        $authMode = LinearAuthMode::configured();
+        $authMode = app(Linear::class)->authMode();
 
         return new SettingsData(
             configured: $authMode === LinearAuthMode::ApiKey || $this->oauth->isConfigured(),
