@@ -4,24 +4,25 @@ declare(strict_types=1);
 
 namespace Dniccum\Linear\Services;
 
+use Dniccum\Linear\Contracts\Connection;
 use Dniccum\Linear\Data\Comment;
 use Dniccum\Linear\Data\Issue;
 use Dniccum\Linear\Data\IssuePayload;
 use Dniccum\Linear\Data\Team;
 use Dniccum\Linear\Data\TeamOptions;
 use Dniccum\Linear\Exceptions\LinearApiException;
-use Dniccum\Linear\Models\LinearConnection;
 
 /**
  * A {@see LinearClient} bound to one connection, as returned by
  * `$owner->linearClient()` and `Linear::client($owner)`.
  *
- * It delegates to the container's LinearClient, so `Linear::fake()` applies.
+ * In Laravel it delegates to the container's LinearClient, so `Linear::fake()`
+ * applies.
  */
 final readonly class ConnectionClient
 {
     public function __construct(
-        public LinearConnection $connection,
+        public Connection $connection,
         private LinearClient $client,
     ) {}
 

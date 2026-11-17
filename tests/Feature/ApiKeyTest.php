@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Dniccum\Linear\Enums\LinearAuthMode;
 use Dniccum\Linear\Enums\LinearConnectionStatus;
+use Dniccum\Linear\Linear;
 use Dniccum\Linear\Models\LinearConnection;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
@@ -148,9 +149,9 @@ test('saving a key is unavailable in OAuth mode', function () {
 test('an unrecognised auth mode means OAuth', function () {
     config(['linear.auth_mode' => 'nonsense']);
 
-    expect(LinearAuthMode::configured())->toBe(LinearAuthMode::OAuth);
+    expect(app(Linear::class)->authMode())->toBe(LinearAuthMode::OAuth);
 
     config(['linear.auth_mode' => null]);
 
-    expect(LinearAuthMode::configured())->toBe(LinearAuthMode::OAuth);
+    expect(app(Linear::class)->authMode())->toBe(LinearAuthMode::OAuth);
 });

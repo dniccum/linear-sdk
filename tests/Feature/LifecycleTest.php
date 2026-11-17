@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Dniccum\Linear\Enums\LinearSyncStatus;
 use Dniccum\Linear\Exceptions\LinearApiException;
 use Dniccum\Linear\Facades\Linear;
+use Dniccum\Linear\Laravel\EloquentSync;
 use Dniccum\Linear\Models\LinearConnection;
 use Dniccum\Linear\Models\LinearDestination;
 use Dniccum\Linear\Models\LinearIssueLink;
@@ -198,7 +199,7 @@ test('the failure of an automatic issue is visible on the model', function () {
 test('events other than created, updated and deleted are ignored', function () {
     $ticket = Ticket::factory()->for($this->owner)->create();
 
-    app(LinearIssueSync::class)->handleEvent($ticket, 'restored');
+    app(EloquentSync::class)->handleEvent($ticket, 'restored');
 
     $this->fake->assertIssueCreatedCount(1)->assertNoCommentPosted();
 });

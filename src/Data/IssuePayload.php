@@ -4,11 +4,8 @@ declare(strict_types=1);
 
 namespace Dniccum\Linear\Data;
 
+use Dniccum\Linear\Laravel\Casts\IssuePayloadCast;
 use Dniccum\Linear\Support\Json;
-use Illuminate\Contracts\Database\Eloquent\Castable;
-use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
-use Illuminate\Database\Eloquent\Model;
-use InvalidArgumentException;
 
 /**
  * Everything sent to Linear to create an issue, frozen on the issue link so
@@ -16,9 +13,10 @@ use InvalidArgumentException;
  *
  * An automatic link starts with only a destination; its title and description
  * are composed on the first attempt (see hasContent()). Stored as flat
- * snake_case JSON in the issue links' payload column.
+ * snake_case JSON in the issue links' payload column (Laravel casts it with
+ * {@see IssuePayloadCast}).
  */
-final readonly class IssuePayload extends Data implements Castable
+final readonly class IssuePayload extends Data
 {
     public function __construct(
         public Destination $destination,
@@ -82,38 +80,5 @@ final readonly class IssuePayload extends Data implements Castable
                 fn (?string $value): bool => $value !== null,
             ),
         ];
-    }
-
-    /**
-     * @param  array<string>  $arguments
-     * @return CastsAttributes<IssuePayload, IssuePayload|array<string, mixed>>
-     */
-    public static function castUsing(array $arguments): CastsAttributes
-    {
-        return new class implements CastsAttributes
-        {
-            public function get(Model $model, string $key, mixed $value, array $attributes): ?IssuePayload
-            {
-                if (! is_string($value)) {
-                    return null;
-                }
-
-                return IssuePayload::fromArray(Json::map(json_decode($value, true, flags: JSON_THROW_ON_ERROR)));
-            }
-
-            /**
-             * @return array<string, string>
-             */
-            public function set(Model $model, string $key, mixed $value, array $attributes): array
-            {
-                $payload = match (true) {
-                    $value instanceof IssuePayload => $value,
-                    is_array($value) => IssuePayload::fromArray(Json::map($value)),
-                    default => throw new InvalidArgumentException('The Linear issue payload must be an IssuePayload.'),
-                };
-
-                return [$key => json_encode($payload->toArray(), JSON_THROW_ON_ERROR)];
-            }
-        };
     }
 }
