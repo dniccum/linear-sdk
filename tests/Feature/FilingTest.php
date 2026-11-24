@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Dniccum\Linear\Enums\LinearIssueSource;
 use Dniccum\Linear\Enums\LinearSyncStatus;
+use Dniccum\Linear\Laravel\EloquentSync;
 use Dniccum\Linear\Models\LinearConnection;
 use Dniccum\Linear\Models\LinearDestination;
 use Dniccum\Linear\Models\LinearIssueLink;
@@ -33,7 +34,7 @@ test('a new model files exactly one issue through an enabled destination', funct
     ]);
 
     // A second pass (e.g. a duplicate event) must not file again.
-    app(LinearIssueSync::class)->fileAutomatically($ticket->fresh());
+    app(EloquentSync::class)->fileAutomatically($ticket->fresh());
 
     $link = $ticket->fresh()->linearIssueLink;
 

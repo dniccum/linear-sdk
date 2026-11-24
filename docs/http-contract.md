@@ -1,5 +1,8 @@
 # HTTP contract
 
+> [!NOTE]
+> The HTTP contract is served by the Laravel integration's routes. The configuration page and its JSON API are not available in Symfony or other frameworks (see [Using Linear SDK outside Laravel](frameworks.md#what-is-not-available-the-configuration-page)).
+
 The configuration page is a thin Blade shell plus a TypeScript (Alpine) bundle. Everything it needs comes from this contract, so you can also build your own UI against the same endpoints (or call the `Actions` classes directly).
 
 All routes live under `config('linear.path')` (default `linear`) and are named with the `linear.` prefix. Each group can be disabled via `config('linear.routes.{ui,oauth,api}')` or `Linear::ignoreRoutes()`.

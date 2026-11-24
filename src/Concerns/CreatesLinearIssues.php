@@ -6,12 +6,12 @@ namespace Dniccum\Linear\Concerns;
 
 use Dniccum\Linear\Enums\LinearSyncStatus;
 use Dniccum\Linear\Exceptions\LinearApiException;
+use Dniccum\Linear\Laravel\EloquentSync;
 use Dniccum\Linear\Models\LinearCommentDelivery;
 use Dniccum\Linear\Models\LinearDestination;
 use Dniccum\Linear\Models\LinearIssueLink;
 use Dniccum\Linear\Observers\LinearModelObserver;
 use Dniccum\Linear\Services\IssueComposer;
-use Dniccum\Linear\Services\LinearIssueSync;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
@@ -93,7 +93,7 @@ trait CreatesLinearIssues
      */
     public function sendToLinear(array $overrides = []): LinearIssueLink
     {
-        return app(LinearIssueSync::class)->sendManually($this, $overrides);
+        return app(EloquentSync::class)->sendManually($this, $overrides);
     }
 
     /**
@@ -105,7 +105,7 @@ trait CreatesLinearIssues
         $link = $this->resolveLinearIssueLink();
 
         if ($link !== null) {
-            app(LinearIssueSync::class)->retry($link);
+            app(EloquentSync::class)->retry($link);
         }
     }
 
@@ -116,7 +116,7 @@ trait CreatesLinearIssues
      */
     public function commentOnLinear(string $body, ?Model $origin = null): ?LinearCommentDelivery
     {
-        return app(LinearIssueSync::class)->comment($this, $body, $origin);
+        return app(EloquentSync::class)->comment($this, $body, $origin);
     }
 
     /**
